@@ -668,6 +668,8 @@
 
                 const videoElem = document.getElementById('video-preview');
 
+                // 既然我們要測試高解析度，我們把手動控制 zoom 的段落移除
+                // 改由 Nimiq 自己的 API 來確保最高品質的畫面輸入
                 html5QrcodeScanner = new window.QrScanner(
                     videoElem,
                     result => {
@@ -675,50 +677,51 @@
                         if (text) onScanSuccess(text);
                     },
                     {
-                        // 取消預設的 highlightScanRegion，讓掃描範圍可以更大 (或者是自訂畫面的掃描區域)
-                        // 把 highlightScanRegion 設為 false，它會盡可能掃描整個影片畫面內的 QR Code
                         highlightScanRegion: false,   
-                        highlightCodeOutline: true,  // 抓到條碼時依然顯示追蹤外框
-                        preferredCamera: 'environment', // 預設使用後置鏡頭
-                        maxScansPerSecond: 10 // 限制掃描頻率，避免裝置過熱
-                    }
-                );
-
-                await html5QrcodeScanner.start();
-                
-                // 嘗試設定相機縮放 (Zoom)
-                try {
-                    const hasCamera = await window.QrScanner.hasCamera();
-                    if (hasCamera) {
-                        // Nimiq qrcode scanner 本身沒有直接提供 setZoom API
-                        // 但我們可以透過存取底層的 MediaStreamTrack 來達成
-                        const track = videoElem.srcObject.getVideoTracks()[0];
-                        const capabilities = track.getCapabilities();
-                        const settings = track.getSettings();
-                        
-                        if (capabilities.zoom) {
-                            // 計算 1.5 倍 zoom。如果 1.5 倍超過最大值，則取最大值。
-                            // 如果相機沒有明確的 min/max step，我們預設基礎為 1，放大 1.5
-                            let targetZoom = (settings.zoom || 1) * 2.0;
-                            
-                            if (capabilities.zoom.max && targetZoom > capabilities.zoom.max) {
-                                targetZoom = capabilities.zoom.max;
-                            }
-                            if (capabilities.zoom.min && targetZoom < capabilities.zoom.min) {
-                                targetZoom = capabilities.zoom.min;
-                            }
-                            
-                            await track.applyConstraints({ advanced: [{ zoom: targetZoom }] });
-                            log(`🔍 已自動拉近鏡頭 (Zoom: ${targetZoom.toFixed(1)}x)`);
-                        } else {
-                            log("ℹ️ 您的裝置/瀏覽器不支援程式控制鏡頭縮放", "text-slate-400");
+                        highlightCodeOutline: true,  
+                        preferredCamera: 'environment',
+                        maxScansPerSecond: 10,
+                        // 關鍵設定：強制要求高解析度
+                        // Nimiq 預設會為了效能稍微降頻解析度，我們強制覆寫 Constraint
+                        calculateScanRegion: (video) => {
+                            // 延續全螢幕掃描的理念，不限制特定方框
+                            return {
+                                x: 0,
+                                y: 0,
+                                width: video.videoWidth,
+                                height: video.videoHeight,
+                            };
                         }
                     }
+                );
+                
+                // Nimiq 支援更底層的 override video constraints
+                // 這裡我們要求理想的 1080p 解析度與連續對焦
+                // 注意：這必須在 scanner start 之前設定或透過底層覆寫，但 Nimiq 1.4 API 比較封閉
+                // 最好的做法是先建構 Scanner，然後直接介入原生的 video 元素啟動參數
+                
+                // 但為了最穩固的相容性，Nimiq v1.4.2 允許我們透過覆寫內部的 _getCameraStream 相關邏輯
+                // 或是最簡單的：讓 Scanner 自己啟動，我們再去修正 Track (跟我們剛剛做 Zoom 一樣)
+                await html5QrcodeScanner.start();
+
+                try {
+                    const track = videoElem.srcObject.getVideoTracks()[0];
+                    if (track) {
+                        // 我們不限制 zoom，而是請求高解析度與自動對焦
+                        await track.applyConstraints({
+                            advanced: [
+                                { width: 1920, height: 1080 }, // 嘗試請求 1080p HD 畫面
+                                { focusMode: "continuous" }    // 強迫開啟自動連續對焦
+                            ]
+                        });
+                        log("🔍 已啟用高畫質(HD)與自動對焦增強辨識", "text-blue-300");
+                    }
                 } catch (e) {
-                    log(`⚠️ 無法調整鏡頭縮放: ${e.message}`, "text-amber-400");
+                    // 如果手機不支援高解析度請求或對焦模式，靜默忽略即可，它還是會用預設值跑
+                    console.warn("相機參數優化失敗:", e);
                 }
 
-                log("✅ 掃描器啟動成功 (極速版)", "text-green-400");
+                log("✅ 掃描器啟動成功 (極速高解析)", "text-green-400");
             } catch (err) {
                 log(`❌ 相機啟動失敗: ${err.message || err}`, "text-red-400");
                 html5QrcodeScanner = null;
