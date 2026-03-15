@@ -215,13 +215,19 @@
             </div>
         </div>
 
-        <!-- =========== [QR Code 簽到頁面] =========== -->
-        <div id="view-qrcode" class="hidden-custom">
-            <div class="bg-white rounded-[2rem] shadow-lg p-6 mb-6 border-2 border-white">
-                <div class="flex justify-between items-center mb-4">
-                    <h1 class="text-2xl font-black text-blue-900 tracking-tighter">班期簽到管理</h1>
+        <!-- =========== [QR Code 簽到頁面 (全螢幕)] =========== -->
+        <div id="view-qrcode" class="hidden-custom fixed inset-0 z-50 bg-black flex flex-col">
+            <!-- 視訊畫面 (全螢幕背景) -->
+            <video id="video-preview" class="absolute inset-0 w-full h-full object-cover"></video>
+            
+            <!-- 頂部控制列 (懸浮) -->
+            <div class="relative z-10 w-full p-4 flex flex-col gap-2 bg-gradient-to-b from-black/70 to-transparent">
+                <div class="flex justify-between items-center mb-2">
+                    <button onclick="switchView('form')" class="px-4 py-2 bg-white/20 hover:bg-white/30 backdrop-blur-md rounded-full text-white font-bold transition-colors">
+                        ← 返回
+                    </button>
                     <button onclick="unlockAdmin()" id="admin-btn"
-                        class="p-2 bg-slate-100 rounded-xl text-slate-400 transition-colors">
+                        class="p-2 bg-white/20 backdrop-blur-md rounded-xl text-white transition-colors">
                         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
                             stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                             <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
@@ -230,65 +236,57 @@
                     </button>
                 </div>
 
-                <div class="space-y-4">
-                    <div>
-                        <label class="text-[10px] font-bold text-slate-400 uppercase ml-1 tracking-widest">1. 目前地點
-                            (定位與密碼)</label>
+                <div class="flex gap-2">
+                    <div class="flex-1">
                         <select id="location-selector" onchange="changeLocation()"
-                            class="w-full bg-slate-50 border-2 border-slate-100 rounded-xl p-3 font-bold text-slate-700 outline-none focus:border-blue-500 appearance-none shadow-inner">
-                            <option value="">載入中...</option>
+                            class="w-full bg-white/80 backdrop-blur-md border border-white/30 rounded-lg py-2 px-3 font-bold text-slate-800 text-sm outline-none shadow-sm">
+                            <option value="">地點載入中...</option>
                         </select>
                     </div>
-
-                    <div>
-                        <label
-                            class="text-[10px] font-bold text-slate-400 uppercase ml-1 tracking-widest text-green-600">2.
-                            選擇簽到班級 (比對名冊)</label>
+                    <div class="flex-1">
                         <select id="qr-class-selector" onchange="changeQRClass()"
-                            class="w-full bg-slate-50 border-2 border-slate-100 rounded-xl p-3 font-bold text-slate-700 outline-none focus:border-green-500 appearance-none shadow-inner">
-                            <option value="">載入中...</option>
+                            class="w-full bg-white/80 backdrop-blur-md border border-white/30 rounded-lg py-2 px-3 font-bold text-slate-800 text-sm outline-none shadow-sm">
+                            <option value="">班級載入中...</option>
                         </select>
                     </div>
                 </div>
+                <!-- 管理員 Badge -->
+                <div id="admin-badge" class="hidden self-end bg-amber-500 text-white text-[10px] font-black px-2 py-1 rounded-lg shadow-lg animate-bounce">
+                    免定位模式
+                </div>
             </div>
 
-            <div id="reader-container"
-                class="relative bg-white rounded-[2rem] shadow-2xl p-2 mb-6 ring-4 ring-white transition-all overflow-hidden">
-                <video id="video-preview" class="w-full rounded-[1.8rem]"></video>
-                <div id="admin-badge"
-                    class="hidden absolute top-4 right-4 bg-amber-500 text-white text-[10px] font-black px-2 py-1 rounded-lg z-10 shadow-lg animate-bounce">
-                    管理員：免定位模式</div>
-            </div>
-
+            <!-- 懸浮狀態卡片 (置中) -->
             <div id="status-card"
-                class="hidden animate-in zoom-in duration-200 mb-6 border-b-8 rounded-[2.5rem] overflow-hidden shadow-2xl transition-all">
+                class="hidden absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-20 w-[85%] max-w-sm rounded-[2.5rem] overflow-hidden shadow-2xl transition-all">
                 <div id="card-loading"
-                    class="hidden bg-blue-600 text-white p-10 flex flex-col items-center gap-3 text-center">
+                    class="hidden bg-blue-600/90 backdrop-blur-sm text-white p-8 flex flex-col items-center gap-3 text-center">
                     <div class="animate-spin h-10 w-10 border-4 border-white/30 border-t-white rounded-full"></div>
                     <p class="text-xl font-black tracking-widest uppercase">驗證中...</p>
                 </div>
                 <div id="card-success"
-                    class="hidden bg-green-600 text-white p-10 flex flex-col items-center gap-4 text-center">
+                    class="hidden bg-green-600/95 backdrop-blur-sm text-white p-8 flex flex-col items-center gap-4 text-center">
                     <span id="display-seat"
                         class="bg-white text-green-600 font-black text-xl px-4 py-1 rounded-xl shadow-lg">座號 --</span>
                     <div>
-                        <p id="display-prayer" class="text-6xl font-black mb-1 leading-none text-white">姓名</p>
+                        <p id="display-prayer" class="text-5xl font-black mb-1 leading-none text-white whitespace-nowrap overflow-hidden text-ellipsis max-w-full">姓名</p>
                         <p id="display-temple" class="text-lg opacity-90 font-bold text-white">單位</p>
                     </div>
                 </div>
                 <div id="card-error"
-                    class="hidden bg-red-600 text-white p-10 flex flex-col items-center gap-3 text-center">
+                    class="hidden bg-red-600/95 backdrop-blur-sm text-white p-8 flex flex-col items-center gap-3 text-center">
                     <p id="error-message" class="text-2xl font-black leading-tight">驗證失敗</p>
-                    <p id="scanned-id-hint" class="text-xs font-mono opacity-70 break-all">ID: --</p>
+                    <p id="scanned-id-hint" class="text-xs font-mono opacity-80 break-all w-full">ID: --</p>
                 </div>
             </div>
 
-            <div class="bg-slate-800 rounded-2xl p-4 shadow-inner">
-                <div class="flex justify-between items-center mb-2 border-b border-slate-700 pb-2 text-white">
-                    <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">系統日誌</span>
-                    <button onclick="clearLog()" class="text-[10px] text-slate-500 underline font-bold">清除</button>
+            <!-- 懸浮系統日誌 (底部) -->
+            <div class="absolute bottom-4 left-4 right-4 z-10 bg-black/60 backdrop-blur-md rounded-2xl p-3 border border-white/10">
+                <div class="flex justify-between items-center mb-1 border-b border-white/20 pb-1 text-white/80">
+                    <span class="text-[10px] font-bold uppercase tracking-widest">系統日誌</span>
+                    <button onclick="clearLog()" class="text-[10px] underline font-bold">清除</button>
                 </div>
-                <div id="debug-log" class="text-blue-200 h-24 overflow-y-auto font-mono text-xs"></div>
+                <div id="debug-log" class="text-blue-100 h-20 overflow-y-auto font-mono text-[11px] leading-relaxed"></div>
             </div>
         </div>
     </div>
