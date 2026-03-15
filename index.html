@@ -685,6 +685,39 @@
                 );
 
                 await html5QrcodeScanner.start();
+                
+                // 嘗試設定相機縮放 (Zoom)
+                try {
+                    const hasCamera = await window.QrScanner.hasCamera();
+                    if (hasCamera) {
+                        // Nimiq qrcode scanner 本身沒有直接提供 setZoom API
+                        // 但我們可以透過存取底層的 MediaStreamTrack 來達成
+                        const track = videoElem.srcObject.getVideoTracks()[0];
+                        const capabilities = track.getCapabilities();
+                        const settings = track.getSettings();
+                        
+                        if (capabilities.zoom) {
+                            // 計算 1.5 倍 zoom。如果 1.5 倍超過最大值，則取最大值。
+                            // 如果相機沒有明確的 min/max step，我們預設基礎為 1，放大 1.5
+                            let targetZoom = (settings.zoom || 1) * 1.5;
+                            
+                            if (capabilities.zoom.max && targetZoom > capabilities.zoom.max) {
+                                targetZoom = capabilities.zoom.max;
+                            }
+                            if (capabilities.zoom.min && targetZoom < capabilities.zoom.min) {
+                                targetZoom = capabilities.zoom.min;
+                            }
+                            
+                            await track.applyConstraints({ advanced: [{ zoom: targetZoom }] });
+                            log(`🔍 已自動拉近鏡頭 (Zoom: ${targetZoom.toFixed(1)}x)`);
+                        } else {
+                            log("ℹ️ 您的裝置/瀏覽器不支援程式控制鏡頭縮放", "text-slate-400");
+                        }
+                    }
+                } catch (e) {
+                    log(`⚠️ 無法調整鏡頭縮放: ${e.message}`, "text-amber-400");
+                }
+
                 log("✅ 掃描器啟動成功 (極速版)", "text-green-400");
             } catch (err) {
                 log(`❌ 相機啟動失敗: ${err.message || err}`, "text-red-400");
