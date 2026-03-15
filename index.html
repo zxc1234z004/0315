@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QR Scanner (Nimiq)</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+        }
+        #video-container {
+            width: 80%;
+            max-width: 600px;
+            position: relative;
+            overflow: hidden;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            background-color: #000;
+        }
+        video {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+        #result-container {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            width: 80%;
+            max-width: 600px;
+            word-wrap: break-word;
+        }
+        #cam-qr-result {
+            font-weight: bold;
+            color: #333;
+        }
+        .controls {
+            margin-top: 15px;
+            display: flex;
+            gap: 10px;
+        }
+        button {
+            padding: 10px 15px;
+            border: none;
+            border-radius: 5px;
+            background-color: #007bff;
+            color: white;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .scan-region-highlight {
+            border-radius: 8px;
+            outline: rgba(0, 0, 0, .5) solid 50vmax;
+        }
+        .scan-region-highlight-svg {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>QR Code Scanner</h1>
+    
+    <div id="video-container">
+        <video id="qr-video"></video>
+    </div>
+
+    <div class="controls">
+        <button id="start-button">開始掃描</button>
+        <button id="stop-button" disabled>停止掃描</button>
+    </div>
+
+    <div id="result-container">
+        掃描結果： <span id="cam-qr-result">尚未掃描到內容</span>
+    </div>
+
+    <!-- 引入 qr-scanner 庫 (從 CDN) -->
+    <script type="module">
+        import QrScanner from 'https://cdn.jsdelivr.net/npm/qr-scanner@1.4.2/qr-scanner.min.js';
+
+        const video = document.getElementById('qr-video');
+        const camHasCamera = document.getElementById('cam-has-camera');
+        const camList = document.getElementById('cam-list');
+        const camQrResult = document.getElementById('cam-qr-result');
+        const startButton = document.getElementById('start-button');
+        const stopButton = document.getElementById('stop-button');
+
+        let scanner;
+
+        // 初始化掃描器
+        function initScanner() {
+            // 指定 worker 路徑 (對於 CDN 使用很重要)
+            QrScanner.WORKER_PATH = 'https://cdn.jsdelivr.net/npm/qr-scanner@1.4.2/qr-scanner-worker.min.js';
+
+            scanner = new QrScanner(
+                video,
+                result => {
+                    console.log('解析結果: ', result);
+                    camQrResult.innerText = result.data;
+                    // 可選：掃到後是否要自動停止
+                    // stopScanning(); 
+                },
+                {
+                    // 掃描回調的觸發頻率
+                    highlightScanRegion: true, // 畫出掃描框
+                    highlightCodeOutline: true // 畫出條碼外框
+                }
+            );
+        }
+
+        function startScanning() {
+            if (!scanner) {
+                initScanner();
+            }
+            scanner.start().then(() => {
+                startButton.disabled = true;
+                stopButton.disabled = false;
+            }).catch(err => {
+                console.error("相機啟動錯誤: ", err);
+                alert("無法啟動相機。請確認已授予權限，且不被其他程式佔用。");
+            });
+        }
+
+        function stopScanning() {
+            if (scanner) {
+                scanner.stop();
+                startButton.disabled = false;
+                stopButton.disabled = true;
+            }
+        }
+
+        // 事件監聽
+        startButton.addEventListener('click', startScanning);
+        stopButton.addEventListener('click', stopScanning);
+
+    </script>
+</body>
+</html>
