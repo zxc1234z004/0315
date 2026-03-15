@@ -677,8 +677,10 @@
                         if (text) onScanSuccess(text);
                     },
                     {
-                        highlightScanRegion: true,   // 顯示綠色掃描框
-                        highlightCodeOutline: true,  // 抓到條碼時顯示外框
+                        // 取消預設的 highlightScanRegion，讓掃描範圍可以更大 (或者是自訂畫面的掃描區域)
+                        // 把 highlightScanRegion 設為 false，它會盡可能掃描整個影片畫面內的 QR Code
+                        highlightScanRegion: false,   
+                        highlightCodeOutline: true,  // 抓到條碼時依然顯示追蹤外框
                         preferredCamera: 'environment', // 預設使用後置鏡頭
                         maxScansPerSecond: 10 // 限制掃描頻率，避免裝置過熱
                     }
