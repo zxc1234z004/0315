@@ -219,11 +219,12 @@
         <div id="view-qrcode" class="hidden-custom fixed inset-0 z-50 bg-black flex flex-col">
             <!-- 視訊畫面 (全螢幕背景) -->
             <video id="video-preview" class="absolute inset-0 w-full h-full object-cover"></video>
-            
+
             <!-- 頂部控制列 (懸浮) -->
             <div class="relative z-10 w-full p-4 flex flex-col gap-2 bg-gradient-to-b from-black/70 to-transparent">
                 <div class="flex justify-between items-center mb-2">
-                    <button onclick="switchView('form')" class="px-4 py-2 bg-white/20 hover:bg-white/30 backdrop-blur-md rounded-full text-white font-bold transition-colors">
+                    <button onclick="switchView('form')"
+                        class="px-4 py-2 bg-white/20 hover:bg-white/30 backdrop-blur-md rounded-full text-white font-bold transition-colors">
                         ← 返回
                     </button>
                     <button onclick="unlockAdmin()" id="admin-btn"
@@ -251,8 +252,20 @@
                     </div>
                 </div>
                 <!-- 管理員 Badge -->
-                <div id="admin-badge" class="hidden self-end bg-amber-500 text-white text-[10px] font-black px-2 py-1 rounded-lg shadow-lg animate-bounce">
-                    免定位模式
+                <div class="flex justify-between items-center w-full mt-1">
+                    <div id="scanner-info" class="flex gap-2">
+                        <div onclick="setStaffPassword()" 
+                            class="bg-white/20 backdrop-blur-md px-3 py-1 rounded-full text-[10px] text-white font-bold cursor-pointer hover:bg-white/30 transition-all">
+                            👤 識別碼: <span id="display-staff">未設定</span>
+                        </div>
+                        <div onclick="openRegistrationModal()" 
+                            class="bg-blue-500/40 backdrop-blur-md px-3 py-1 rounded-full text-[10px] text-white font-bold cursor-pointer hover:bg-blue-500/60 transition-all border border-blue-400/30">
+                            📝 註冊點名員
+                        </div>
+                    </div>
+                    <div id="admin-badge" class="hidden bg-amber-500 text-white text-[10px] font-black px-2 py-1 rounded-lg shadow-lg animate-bounce">
+                        免定位模式
+                    </div>
                 </div>
             </div>
 
@@ -269,7 +282,9 @@
                     <span id="display-seat"
                         class="bg-white text-green-600 font-black text-xl px-4 py-1 rounded-xl shadow-lg">座號 --</span>
                     <div>
-                        <p id="display-prayer" class="text-5xl font-black mb-1 leading-none text-white whitespace-nowrap overflow-hidden text-ellipsis max-w-full">姓名</p>
+                        <p id="display-prayer"
+                            class="text-5xl font-black mb-1 leading-none text-white whitespace-nowrap overflow-hidden text-ellipsis max-w-full">
+                            姓名</p>
                         <p id="display-temple" class="text-lg opacity-90 font-bold text-white">單位</p>
                     </div>
                 </div>
@@ -281,12 +296,14 @@
             </div>
 
             <!-- 懸浮系統日誌 (底部) -->
-            <div class="absolute bottom-4 left-4 right-4 z-10 bg-black/60 backdrop-blur-md rounded-2xl p-3 border border-white/10">
+            <div
+                class="absolute bottom-4 left-4 right-4 z-10 bg-black/60 backdrop-blur-md rounded-2xl p-3 border border-white/10">
                 <div class="flex justify-between items-center mb-1 border-b border-white/20 pb-1 text-white/80">
                     <span class="text-[10px] font-bold uppercase tracking-widest">系統日誌</span>
                     <button onclick="clearLog()" class="text-[10px] underline font-bold">清除</button>
                 </div>
-                <div id="debug-log" class="text-blue-100 h-20 overflow-y-auto font-mono text-[11px] leading-relaxed"></div>
+                <div id="debug-log" class="text-blue-100 h-20 overflow-y-auto font-mono text-[11px] leading-relaxed">
+                </div>
             </div>
         </div>
     </div>
@@ -315,6 +332,38 @@
         </div>
     </div>
 
+    <!-- 人員註冊 Modal -->
+    <div id="registration-modal"
+        class="fixed inset-0 bg-black/80 flex items-center justify-center z-[10000] backdrop-blur-md hidden-custom">
+        <div class="bg-white p-8 rounded-[2rem] w-[90%] max-w-[360px] shadow-2xl relative overflow-hidden">
+            <div class="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-blue-500 to-indigo-600"></div>
+            <h4 class="font-black text-2xl text-gray-800 mb-2">👤 註冊點名員</h4>
+            <p class="text-gray-500 text-sm mb-6 leading-relaxed">註冊後，您的點名紀錄將會自動標註您的姓名。</p>
+            
+            <div class="space-y-4">
+                <div>
+                    <label class="text-[10px] font-black uppercase tracking-wider text-gray-400 ml-1">專屬密碼 (建議英文+數字)</label>
+                    <input type="text" id="reg-password" 
+                        class="w-full mt-1 p-4 bg-gray-50 border-2 border-gray-100 rounded-2xl focus:border-blue-500 transition-all outline-none font-bold text-gray-700"
+                        placeholder="例如: S001">
+                </div>
+                <div>
+                    <label class="text-[10px] font-black uppercase tracking-wider text-gray-400 ml-1">您的真實姓名</label>
+                    <input type="text" id="reg-name" 
+                        class="w-full mt-1 p-4 bg-gray-50 border-2 border-gray-100 rounded-2xl focus:border-blue-500 transition-all outline-none font-bold text-gray-700"
+                        placeholder="例如: 王大明">
+                </div>
+            </div>
+
+            <div class="flex gap-3 mt-8">
+                <button class="flex-1 p-4 bg-gray-100 rounded-2xl font-black text-gray-500 hover:bg-gray-200 transition-colors" 
+                    onclick="closeRegistrationModal()">取消</button>
+                <button class="flex-1 p-4 bg-blue-600 text-white rounded-2xl font-black shadow-lg shadow-blue-200 hover:bg-blue-700 active:scale-95 transition-all"
+                    id="confirm-reg-btn" onclick="registerStaff()">確認註冊</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         // 通用變數
         const GAS_URL = "https://script.google.com/macros/s/AKfycby2Eaaw-MCs-zfX5b5W5k_y20rfRZJVW4zMtZIqHMjNPFSkBUb9ZTrNuwSQmrG0iw2U/exec";
@@ -335,6 +384,85 @@
         let lastId = "";
         let lastTime = 0;
         let html5QrcodeScanner = null;
+        let staffPassword = localStorage.getItem('staffPassword') || "";
+
+        // --- [ 人員識別與註冊功能 ] ---
+        function setStaffPassword() {
+            const pass = prompt("請輸入您的「專屬密碼」進行登入：", staffPassword);
+            if (pass !== null && pass.trim() !== "") {
+                staffPassword = pass.trim();
+                localStorage.setItem('staffPassword', staffPassword);
+                updateStaffDisplay();
+                log(`👤 已登入識別碼: ${staffPassword}`, "text-green-300");
+            } else if (pass === "") {
+                staffPassword = "";
+                localStorage.removeItem('staffPassword');
+                updateStaffDisplay();
+            }
+        }
+
+        function openRegistrationModal() {
+            document.getElementById('registration-modal').classList.remove('hidden-custom');
+        }
+
+        function closeRegistrationModal() {
+            document.getElementById('registration-modal').classList.add('hidden-custom');
+        }
+
+        async function registerStaff() {
+            const pass = document.getElementById('reg-password').value.trim();
+            const name = document.getElementById('reg-name').value.trim();
+            const btn = document.getElementById('confirm-reg-btn');
+
+            if (!pass || !name) { alert("請填寫完整資訊"); return; }
+            
+            const originalText = btn.innerText;
+            btn.disabled = true;
+            btn.innerText = "註冊中...";
+
+            try {
+                const res = await fetch(GAS_URL, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        action: 'registerStaff',
+                        password: pass,
+                        name: name
+                    })
+                });
+                const result = await res.json();
+                
+                if (result.status === "success") {
+                    staffPassword = pass;
+                    localStorage.setItem('staffPassword', staffPassword);
+                    updateStaffDisplay();
+                    alert("✅ 註冊成功！已自動登入。");
+                    closeRegistrationModal();
+                    log(`✨ 新成員註冊: ${name} (${pass})`, "text-amber-300");
+                } else {
+                    alert("❌ 註冊失敗：" + result.message);
+                }
+            } catch (e) {
+                alert("連線失敗，請稍後再試。");
+            } finally {
+                btn.disabled = false;
+                btn.innerText = originalText;
+            }
+        }
+
+        function updateStaffDisplay() {
+            const display = document.getElementById('display-staff');
+            if (display) {
+                display.innerText = staffPassword || "未設定";
+            }
+        }
+
+        function checkStaffLogin() {
+            if (!staffPassword) {
+                setStaffPassword();
+                return !!staffPassword;
+            }
+            return true;
+        }
 
         // --- [ 頁面切換控制 ] ---
         function switchView(view) {
@@ -354,7 +482,7 @@
                     html5QrcodeScanner = null;
                 }
             } else {
-                // QR Code 簽到前先檢查密碼
+                // QR Code 簽到前先檢查密碼 (這裡沿用原本的 Admin 密碼保護進入介面)
                 const pass = prompt("請輸入訪問密碼以啟用 QR Code 簽到：");
                 // 檢查是否符合任一地點的密碼，或預設 1234
                 const isValid = allConfig.locations.some(l => String(l.password) === pass) || pass === "1234";
@@ -364,6 +492,9 @@
                     qrView.classList.remove('hidden-custom');
                     navForm.classList.remove('active');
                     navQR.classList.add('active');
+                    // 更新人員顯示並檢查有無專屬識別碼
+                    updateStaffDisplay();
+                    setTimeout(() => checkStaffLogin(), 500);
                     initScanner();
                 } else if (pass !== null) {
                     alert("密碼錯誤，無法開啟簽到功能。");
@@ -534,6 +665,7 @@
                 area: item.area,
                 status: status,
                 reason: reason
+                // 依照要求：手動點名不需要工作人員識別碼 (已移除)
             };
             try {
                 const res = await fetch(GAS_URL, {
@@ -677,8 +809,8 @@
                         if (text) onScanSuccess(text);
                     },
                     {
-                        highlightScanRegion: false,   
-                        highlightCodeOutline: true,  
+                        highlightScanRegion: false,
+                        highlightCodeOutline: true,
                         preferredCamera: 'environment',
                         maxScansPerSecond: 10,
                         // 關鍵設定：強制要求高解析度
@@ -694,12 +826,12 @@
                         }
                     }
                 );
-                
+
                 // Nimiq 支援更底層的 override video constraints
                 // 這裡我們要求理想的 1080p 解析度與連續對焦
                 // 注意：這必須在 scanner start 之前設定或透過底層覆寫，但 Nimiq 1.4 API 比較封閉
                 // 最好的做法是先建構 Scanner，然後直接介入原生的 video 元素啟動參數
-                
+
                 // 但為了最穩固的相容性，Nimiq v1.4.2 允許我們透過覆寫內部的 _getCameraStream 相關邏輯
                 // 或是最簡單的：讓 Scanner 自己啟動，我們再去修正 Track (跟我們剛剛做 Zoom 一樣)
                 await html5QrcodeScanner.start();
@@ -765,7 +897,8 @@
                     body: JSON.stringify({
                         action: "signin", memberId: memberid,
                         locationName: currentLoc.name, className: qrCurrentClass,
-                        status: isAdminMode ? "免定位模式" : "定位驗證成功"
+                        status: isAdminMode ? "免定位模式" : "定位驗證成功",
+                        staffPassword: staffPassword // 傳送專屬密碼供後端識別人員
                     })
                 });
                 const result = await response.json();
