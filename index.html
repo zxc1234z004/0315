@@ -385,19 +385,49 @@
         let lastTime = 0;
         let html5QrcodeScanner = null;
         let staffPassword = localStorage.getItem('staffPassword') || "";
+        let staffName = ""; // 快取驗證過後的姓名
 
         // --- [ 人員識別與註冊功能 ] ---
-        function setStaffPassword() {
+        async function setStaffPassword() {
             const pass = prompt("請輸入您的「專屬密碼」進行登入：", staffPassword);
             if (pass !== null && pass.trim() !== "") {
-                staffPassword = pass.trim();
-                localStorage.setItem('staffPassword', staffPassword);
-                updateStaffDisplay();
-                log(`👤 已登入識別碼: ${staffPassword}`, "text-green-300");
+                const targetPass = pass.trim();
+                const verified = await verifyStaff(targetPass);
+                if (verified) {
+                    staffPassword = targetPass;
+                    localStorage.setItem('staffPassword', staffPassword);
+                }
             } else if (pass === "") {
                 staffPassword = "";
+                staffName = "";
                 localStorage.removeItem('staffPassword');
                 updateStaffDisplay();
+            }
+        }
+
+        async function verifyStaff(pass) {
+            log(`🔍 正在驗證識別碼: ${pass}...`, "text-slate-400");
+            try {
+                const res = await fetch(GAS_URL, {
+                    method: 'POST',
+                    body: JSON.stringify({ action: 'verifyStaff', password: pass })
+                });
+                const result = await res.json();
+                if (result.status === "success") {
+                    staffName = result.data.name;
+                    updateStaffDisplay();
+                    log(`✅ 驗證成功: ${staffName}`, "text-green-300");
+                    return true;
+                } else {
+                    staffName = "";
+                    updateStaffDisplay();
+                    alert("❌ 識別碼驗證失敗：" + result.message);
+                    log(`⚠️ 驗證失敗: ${result.message}`, "text-red-300");
+                    return false;
+                }
+            } catch (e) {
+                alert("無法連線至伺服器驗證。");
+                return false;
             }
         }
 
@@ -452,20 +482,24 @@
         function updateStaffDisplay() {
             const display = document.getElementById('display-staff');
             if (display) {
-                display.innerText = staffPassword || "未設定";
+                display.innerText = staffName ? staffName : (staffPassword || "未設定");
             }
         }
 
-        function checkStaffLogin() {
+        async function checkStaffLogin() {
             if (!staffPassword) {
                 setStaffPassword();
-                return !!staffPassword;
+                return false;
+            }
+            if (!staffName) {
+                const ok = await verifyStaff(staffPassword);
+                return ok;
             }
             return true;
         }
 
         // --- [ 頁面切換控制 ] ---
-        function switchView(view) {
+        async function switchView(view) {
             const formView = document.getElementById('view-form');
             const qrView = document.getElementById('view-qrcode');
             const navForm = document.getElementById('nav-form');
