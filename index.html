@@ -516,22 +516,15 @@
                     html5QrcodeScanner = null;
                 }
             } else {
-                // QR Code 簽到前先檢查密碼 (這裡沿用原本的 Admin 密碼保護進入介面)
-                const pass = prompt("請輸入訪問密碼以啟用 QR Code 簽到：");
-                // 檢查是否符合任一地點的密碼，或預設 1234
-                const isValid = allConfig.locations.some(l => String(l.password) === pass) || pass === "1234";
-
-                if (isValid) {
+                // 直接檢查人員登入狀態，不再需要額外的訪問密碼
+                const isLogged = await checkStaffLogin();
+                if (isLogged) {
                     formView.classList.add('hidden-custom');
                     qrView.classList.remove('hidden-custom');
                     navForm.classList.remove('active');
                     navQR.classList.add('active');
-                    // 更新人員顯示並檢查有無專屬識別碼
                     updateStaffDisplay();
-                    setTimeout(() => checkStaffLogin(), 500);
                     initScanner();
-                } else if (pass !== null) {
-                    alert("密碼錯誤，無法開啟簽到功能。");
                 }
             }
         }
