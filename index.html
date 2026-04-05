@@ -208,6 +208,14 @@
                             <option value="">-- 請選擇單位 --</option>
                         </select>
                     </div>
+                    <!-- 新增：只顯示未點名過濾器 -->
+                    <div class="flex items-center px-1">
+                        <label class="flex items-center cursor-pointer space-x-2">
+                            <input type="checkbox" id="missing-only-checkbox" onchange="onUnitChange()" 
+                                class="w-5 h-5 text-blue-600 rounded border-gray-300 focus:ring-blue-500">
+                            <span class="text-sm font-bold text-gray-600">只顯示未簽到名單</span>
+                        </label>
+                    </div>
                 </div>
 
                 <div id="loader" class="hidden-custom text-center py-5 italic text-gray-500">載入中...</div>
@@ -477,13 +485,20 @@
         function onUnitChange() {
             const unitName = document.getElementById('unit-select').value;
             const nameList = document.getElementById('name-list');
+            const missingOnly = document.getElementById('missing-only-checkbox').checked;
 
             if (!unitName) {
                 nameList.classList.add('hidden-custom');
                 return;
             }
 
-            const filtered = allData.filter(item => item.area === unitName);
+            let filtered = allData.filter(item => item.area === unitName);
+            
+            // 如果勾選了「只顯示未簽到」，排除已有狀態的人
+            if (missingOnly) {
+                filtered = filtered.filter(item => !item.status || (item.status !== '出席' && item.status !== '請假'));
+            }
+
             renderList(filtered);
             nameList.classList.remove('hidden-custom');
         }
@@ -544,6 +559,12 @@
                 if (result.status === "success") {
                     btn.innerText = "已送出";
                     btn.style.backgroundColor = "#999";
+                    // 更新本地資料狀態，讓過濾器知道這個人已經點過了
+                    item.status = status;
+                    // 如果目前正在「只顯示未簽到」模式，立即重新渲染列表以移除該員
+                    if (document.getElementById('missing-only-checkbox').checked) {
+                        setTimeout(() => onUnitChange(), 500); // 稍微延遲 0.5 秒讓使用者看到按鈕變色
+                    }
                 } else {
                     alert(result.message);
                     btn.innerText = originalText;
