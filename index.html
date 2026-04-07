@@ -199,13 +199,13 @@
             <div id="main-content" class="hidden-custom">
                 <button id="form-back-btn" class="back-btn hidden-custom">← 返回班級選擇</button>
 
-                <!-- 下拉式選單分組 (簡化為單一單位選擇) -->
+                <!-- 下拉式選單分組 (簡化為單一區域選擇) -->
                 <div class="space-y-4 mb-6" id="dropdown-controls">
                     <div>
-                        <label class="text-xs font-bold text-gray-500 uppercase ml-1 block mb-1">請選擇單位</label>
+                        <label class="text-xs font-bold text-gray-500 uppercase ml-1 block mb-1">請選擇區域</label>
                         <select id="unit-select" onchange="onUnitChange()"
                             class="w-full bg-gray-50 border-2 border-gray-100 rounded-xl p-3 font-bold text-gray-700 outline-none focus:border-blue-500 appearance-none shadow-inner">
-                            <option value="">-- 請選擇單位 --</option>
+                            <option value="">-- 請選擇區域 --</option>
                         </select>
                     </div>
                 </div>
@@ -285,7 +285,7 @@
                         <p id="display-prayer"
                             class="text-5xl font-black mb-1 leading-none text-white whitespace-nowrap overflow-hidden text-ellipsis max-w-full">
                             姓名</p>
-                        <p id="display-temple" class="text-lg opacity-90 font-bold text-white">單位</p>
+                        <p id="display-temple" class="text-lg opacity-90 font-bold text-white">區域</p>
                     </div>
                 </div>
                 <div id="card-error"
@@ -572,7 +572,7 @@
             document.getElementById('class-select-grid').classList.add('hidden-custom');
             document.getElementById('main-content').classList.remove('hidden-custom');
             document.getElementById('loader').classList.remove('hidden-custom');
-            document.getElementById('form-title').innerText = `📋 ${selectedClass} - 下拉選擇`;
+            document.getElementById('form-title').innerText = `📋 ${selectedClass} `;
             await loadFormData();
         }
 
@@ -594,13 +594,13 @@
 
         function initDropdowns() {
             const unitSelect = document.getElementById('unit-select');
-            unitSelect.innerHTML = '<option value="">-- 請選擇單位 --</option>';
+            unitSelect.innerHTML = '<option value="">-- 請選擇區域 --</option>';
 
-            // 取得所有唯一的單位名稱並排序
+            // 取得所有唯一的區域名稱並排序
             const units = [...new Set(allData.map(item => item.area || "未分類"))].sort();
 
             if (units.length === 1) {
-                // 如果只有一個單位，自動選中並隱藏下拉選單
+                // 如果只有一個區域，自動選中並隱藏下拉選單
                 const uName = units[0];
                 const count = allData.length;
                 const opt = document.createElement('option');
