@@ -527,15 +527,18 @@
                     html5QrcodeScanner = null;
                 }
             } else {
-                // 直接檢查人員登入狀態，不再需要額外的訪問密碼
+                // 先切換到 QR 頁面，再確認登入狀態
+                formView.classList.add('hidden-custom');
+                qrView.classList.remove('hidden-custom');
+                navForm.classList.remove('active');
+                navQR.classList.add('active');
+                updateStaffDisplay();
+                initScanner();
+
+                // 若未登入（Firebase 無此識別碼），自動彈出註冊/登入視窗
                 const isLogged = await checkStaffLogin();
-                if (isLogged) {
-                    formView.classList.add('hidden-custom');
-                    qrView.classList.remove('hidden-custom');
-                    navForm.classList.remove('active');
-                    navQR.classList.add('active');
-                    updateStaffDisplay();
-                    initScanner();
+                if (!isLogged) {
+                    openRegistrationModal();
                 }
             }
         }
