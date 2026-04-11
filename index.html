@@ -8,6 +8,9 @@
     <!-- 引入支援庫 -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/pako@2.1.0/dist/pako.min.js"></script> <!-- Optional but good for complex codes -->
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
     <!-- 改用動態載入 Nimiq qr-scanner，這裡移除原有的 zxing -->
     <style>
         /* 繼承原有的手動表單樣式 */
@@ -199,13 +202,13 @@
             <div id="main-content" class="hidden-custom">
                 <button id="form-back-btn" class="back-btn hidden-custom">← 返回班級選擇</button>
 
-                <!-- 下拉式選單分組 (簡化為單一區域選擇) -->
+                <!-- 下拉式選單分組 (簡化為單一單位選擇) -->
                 <div class="space-y-4 mb-6" id="dropdown-controls">
                     <div>
-                        <label class="text-xs font-bold text-gray-500 uppercase ml-1 block mb-1">請選擇區域</label>
+                        <label class="text-xs font-bold text-gray-500 uppercase ml-1 block mb-1">請選擇單位</label>
                         <select id="unit-select" onchange="onUnitChange()"
                             class="w-full bg-gray-50 border-2 border-gray-100 rounded-xl p-3 font-bold text-gray-700 outline-none focus:border-blue-500 appearance-none shadow-inner">
-                            <option value="">-- 請選擇區域 --</option>
+                            <option value="">-- 請選擇單位 --</option>
                         </select>
                     </div>
                 </div>
@@ -285,7 +288,7 @@
                         <p id="display-prayer"
                             class="text-5xl font-black mb-1 leading-none text-white whitespace-nowrap overflow-hidden text-ellipsis max-w-full">
                             姓名</p>
-                        <p id="display-temple" class="text-lg opacity-90 font-bold text-white">區域</p>
+                        <p id="display-temple" class="text-lg opacity-90 font-bold text-white">單位</p>
                     </div>
                 </div>
                 <div id="card-error"
@@ -368,6 +371,18 @@
         // 通用變數
         const GAS_URL = "https://script.google.com/macros/s/AKfycby2Eaaw-MCs-zfX5b5W5k_y20rfRZJVW4zMtZIqHMjNPFSkBUb9ZTrNuwSQmrG0iw2U/exec";
 
+        // --- [ Firebase 初始化 ] ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyC6CbiobydaP-BBP-FAFcUyRF1cMpdNuRc",
+            authDomain: "roll-call-system-0411.firebaseapp.com",
+            projectId: "roll-call-system-0411",
+            storageBucket: "roll-call-system-0411.firebasestorage.app",
+            messagingSenderId: "24202815510",
+            appId: "1:24202815510:web:927cd30e9b44402be66d37"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
         // --- [ 手動點名邏輯變數 ] ---
         let allData = [];
         let selectedClass = "";
@@ -408,25 +423,22 @@
         async function verifyStaff(pass) {
             log(`🔍 正在驗證識別碼: ${pass}...`, "text-slate-400");
             try {
-                const res = await fetch(GAS_URL, {
-                    method: 'POST',
-                    body: JSON.stringify({ action: 'verifyStaff', password: pass })
-                });
-                const result = await res.json();
-                if (result.status === "success") {
-                    staffName = result.data.name;
+                // ✅ 改用 Firebase 驗證（不再需要 GAS）
+                const doc = await db.collection('staff').doc(pass).get();
+                if (doc.exists) {
+                    staffName = doc.data().name;
                     updateStaffDisplay();
                     log(`✅ 驗證成功: ${staffName}`, "text-green-300");
                     return true;
                 } else {
                     staffName = "";
                     updateStaffDisplay();
-                    alert("❌ 識別碼驗證失敗：" + result.message);
-                    log(`⚠️ 驗證失敗: ${result.message}`, "text-red-300");
+                    alert("❌ 識別碼驗證失敗：尚未註冊，請先點選「註冊點名員」");
+                    log(`⚠️ 驗證失敗: 找不到此識別碼`, "text-red-300");
                     return false;
                 }
             } catch (e) {
-                alert("無法連線至伺服器驗證。");
+                alert("無法連線至 Firebase：" + e.message);
                 return false;
             }
         }
@@ -451,28 +463,27 @@
             btn.innerText = "註冊中...";
 
             try {
-                const res = await fetch(GAS_URL, {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        action: 'registerStaff',
-                        password: pass,
-                        name: name
-                    })
-                });
-                const result = await res.json();
-                
-                if (result.status === "success") {
-                    staffPassword = pass;
-                    localStorage.setItem('staffPassword', staffPassword);
-                    updateStaffDisplay();
-                    alert("✅ 註冊成功！已自動登入。");
-                    closeRegistrationModal();
-                    log(`✨ 新成員註冊: ${name} (${pass})`, "text-amber-300");
-                } else {
-                    alert("❌ 註冊失敗：" + result.message);
+                // ✅ 改用 Firebase 寫入（不再需要 GAS）
+                const docRef = db.collection('staff').doc(pass);
+                const existing = await docRef.get();
+                if (existing.exists) {
+                    alert(`❌ 此密碼已被「${existing.data().name}」註冊，請換一個或直接登入`);
+                    return;
                 }
+                await docRef.set({
+                    name: name,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+
+                staffPassword = pass;
+                staffName = name;
+                localStorage.setItem('staffPassword', staffPassword);
+                updateStaffDisplay();
+                alert("✅ 註冊成功！已自動登入。");
+                closeRegistrationModal();
+                log(`✨ 新成員註冊: ${name} (${pass})`, "text-amber-300");
             } catch (e) {
-                alert("連線失敗，請稍後再試。");
+                alert("連線失敗：" + e.message);
             } finally {
                 btn.disabled = false;
                 btn.innerText = originalText;
@@ -572,7 +583,7 @@
             document.getElementById('class-select-grid').classList.add('hidden-custom');
             document.getElementById('main-content').classList.remove('hidden-custom');
             document.getElementById('loader').classList.remove('hidden-custom');
-            document.getElementById('form-title').innerText = `📋 ${selectedClass} `;
+            document.getElementById('form-title').innerText = `📋 ${selectedClass} - 下拉選擇`;
             await loadFormData();
         }
 
@@ -594,13 +605,13 @@
 
         function initDropdowns() {
             const unitSelect = document.getElementById('unit-select');
-            unitSelect.innerHTML = '<option value="">-- 請選擇區域 --</option>';
+            unitSelect.innerHTML = '<option value="">-- 請選擇單位 --</option>';
 
-            // 取得所有唯一的區域名稱並排序
+            // 取得所有唯一的單位名稱並排序
             const units = [...new Set(allData.map(item => item.area || "未分類"))].sort();
 
             if (units.length === 1) {
-                // 如果只有一個區域，自動選中並隱藏下拉選單
+                // 如果只有一個單位，自動選中並隱藏下拉選單
                 const uName = units[0];
                 const count = allData.length;
                 const opt = document.createElement('option');
@@ -682,34 +693,25 @@
             const originalText = btn.innerText;
             btn.disabled = true;
             btn.innerText = "...";
-            const payload = {
-                action: 'updateStatus',
-                className: selectedClass,
-                memberId: item.memberId,
-                name: item.name,
-                gender: item.gender,
-                seatNum: item.seatNum,
-                area: item.area,
-                status: status,
-                reason: reason
-                // 依照要求：手動點名不需要工作人員識別碼 (已移除)
-            };
             try {
-                const res = await fetch(GAS_URL, {
-                    method: 'POST',
-                    body: JSON.stringify(payload)
+                // ✅ 改用 Firebase 直接寫入（解決多人同時點名的延遲問題）
+                await db.collection('signin_records').add({
+                    time: firebase.firestore.FieldValue.serverTimestamp(),
+                    memberId: item.memberId,
+                    name: item.name,
+                    gender: item.gender,
+                    seatNum: item.seatNum,
+                    area: item.area,
+                    locationName: "管理者手動",
+                    status: status,
+                    reason: reason || "",
+                    className: selectedClass,
+                    staff: staffName || "未知"
                 });
-                const result = await res.json();
-                if (result.status === "success") {
-                    btn.innerText = "已送出";
-                    btn.style.backgroundColor = "#999";
-                } else {
-                    alert(result.message);
-                    btn.innerText = originalText;
-                    btn.disabled = false;
-                }
+                btn.innerText = "已送出";
+                btn.style.backgroundColor = "#999";
             } catch (err) {
-                alert("傳送失敗。");
+                alert("傳送失敗：" + err.message);
                 btn.innerText = originalText;
                 btn.disabled = false;
             }
@@ -918,25 +920,39 @@
                     log("✅ 定位驗證通過");
                 }
 
-                log(`🚀 發送簽到：${memberid}`);
+                log(`🚀 驗證成員資格：${memberid}`);
+                // 步驟1：GAS 查名冊 + G欄資格驗證（不寫入 Sheets）
                 const response = await fetch(GAS_URL, {
                     method: 'POST',
                     body: JSON.stringify({
-                        action: "signin", memberId: memberid,
-                        locationName: currentLoc.name, className: qrCurrentClass,
-                        status: isAdminMode ? "免定位模式" : "定位驗證成功",
-                        staffPassword: staffPassword // 傳送專屬密碼供後端識別人員
+                        action: "signin",
+                        memberId: memberid,
+                        className: qrCurrentClass
                     })
                 });
                 const result = await response.json();
 
                 if (result.status === "success") {
+                    // 步驟2：Firebase 寫入紀錄（毫秒級，不排隊）
+                    await db.collection('signin_records').add({
+                        time: firebase.firestore.FieldValue.serverTimestamp(),
+                        memberId: memberid,
+                        name: result.data.name,
+                        gender: result.data.gender,
+                        seatNum: result.data.seatNum,
+                        area: result.data.area,
+                        locationName: currentLoc.name,
+                        status: isAdminMode ? "免定位模式" : "定位驗證成功",
+                        reason: "",
+                        className: qrCurrentClass,
+                        staff: staffName || "未知"
+                    });
                     document.getElementById('display-prayer').innerText = result.data.name || "未知";
                     document.getElementById('display-seat').innerText = `座號 ${result.data.seatNum || '無'}`;
                     document.getElementById('display-temple').innerText = result.data.area || "";
                     document.getElementById('card-loading').classList.add('hidden');
                     document.getElementById('card-success').classList.remove('hidden');
-                    log(`✅ ${result.data.name} 簽到成功`);
+                    log(`✅ ${result.data.name} 簽到成功 (Firebase)`);
                     setTimeout(() => { isProcessingScanner = false; statusCard.classList.add('hidden'); }, 2000);
                 } else { throw new Error(result.message); }
             } catch (err) {
