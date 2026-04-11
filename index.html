@@ -711,10 +711,10 @@
                     className: selectedClass,
                     staff: staffName || "未知"
                 });
-                // 💾 背景備份到 Google Sheets（不等待回覆，不影響速度）
+                // 💾 背景備份到 Google Sheets（no-cors 避免 Preflight 攔截）
                 fetch(GAS_URL, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    mode: 'no-cors',
                     body: JSON.stringify({
                         action: 'logToSheets', memberId: item.memberId,
                         name: item.name, gender: item.gender, seatNum: item.seatNum,
@@ -962,10 +962,10 @@
                         className: qrCurrentClass,
                         staff: staffName || "未知"
                     });
-                    // 💾 背景備份到 Google Sheets（不等待回覆，不影響簽到速度）
+                    // 💾 背景備份到 Google Sheets（no-cors 避免 Preflight 攔截）
                     fetch(GAS_URL, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        mode: 'no-cors',
                         body: JSON.stringify({
                             action: 'logToSheets', memberId: memberid,
                             name: result.data.name, gender: result.data.gender,
