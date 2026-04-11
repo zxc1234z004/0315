@@ -711,6 +711,14 @@
                     className: selectedClass,
                     staff: staffName || "未知"
                 });
+                // 💾 背景備份到 Google Sheets（不等待回覆，不影響速度）
+                fetch(GAS_URL, { method: 'POST', body: JSON.stringify({
+                    action: 'logToSheets', memberId: item.memberId,
+                    name: item.name, gender: item.gender, seatNum: item.seatNum,
+                    area: item.area, locationName: "管理者手動",
+                    status: status, reason: reason || "",
+                    className: selectedClass, staff: staffName || "未知"
+                })}).catch(() => {});
                 btn.innerText = "已送出";
                 btn.style.backgroundColor = "#999";
             } catch (err) {
@@ -950,6 +958,15 @@
                         className: qrCurrentClass,
                         staff: staffName || "未知"
                     });
+                    // 💾 背景備份到 Google Sheets（不等待回覆，不影響簽到速度）
+                    fetch(GAS_URL, { method: 'POST', body: JSON.stringify({
+                        action: 'logToSheets', memberId: memberid,
+                        name: result.data.name, gender: result.data.gender,
+                        seatNum: result.data.seatNum, area: result.data.area,
+                        locationName: currentLoc.name,
+                        status: isAdminMode ? "免定位模式" : "定位驗證成功",
+                        reason: "", className: qrCurrentClass, staff: staffName || "未知"
+                    })}).catch(() => {});
                     document.getElementById('display-prayer').innerText = result.data.name || "未知";
                     document.getElementById('display-seat').innerText = `座號 ${result.data.seatNum || '無'}`;
                     document.getElementById('display-temple').innerText = result.data.area || "";
