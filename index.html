@@ -223,7 +223,7 @@
                                 <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
                                 <path d="M16 16h5v5" />
                             </svg>
-                            同步新名冊 (目前已快取)不要按
+                            同步新名冊 (目前已快取,'不要點')
                         </button>
                     </div>
                 </div>
@@ -438,11 +438,9 @@
         // --- [ 手動點名邏輯變數 ] ---
         let allData = [];
         let rosterCache = {}; // 記憶體快取：{ className: [members...] }
-        let signedInCache = {
-            ids: new Set(),
-            lastFetch: 0,
-            className: ""
-        }; // 新增：簽到狀態快取（3 分鐘效期）
+        let signedInIds = new Set(); // 記憶體儲存今日已簽到 ID
+        let signinUnsubscribe = null; // 即時監聽器解除函數
+
         let selectedClass = "";
         let currentTargetItem = null;
         let currentTargetBtn = null;
@@ -673,41 +671,47 @@
                     console.log(`[Firebase] 從資料庫下載 ${selectedClass} 名冊 (${members.length} 筆)`);
                 }
 
-                // 2. 取得今日已簽到紀錄 (作法 A：每日重置)
-                // 優化：若 3 分鐘內抓過同班級的簽到名單，直接用快取，省下讀取費
-                const now = Date.now();
+                // 2. 啟動「極致省錢」即時監聽 (onSnapshot)
+                // 如果已經有在監聽別的班級，先解除
+                if (signinUnsubscribe) signinUnsubscribe();
+
                 const startOfDay = new Date();
                 startOfDay.setHours(0, 0, 0, 0);
 
-                if (signedInCache.className === selectedClass && (now - signedInCache.lastFetch < 180000)) {
-                    console.log(`[Cache] 已簽到名單尚在效效期內，跳過資料庫讀取`);
-                } else {
-                    const signinSnap = await db.collection('signin_records')
-                        .where('className', '==', selectedClass)
-                        .where('time', '>=', startOfDay)
-                        .get();
-                    signedInCache.ids = new Set(signinSnap.docs.map(doc => doc.data().memberId));
-                    signedInCache.lastFetch = now;
-                    signedInCache.className = selectedClass;
-                    console.log(`[Firebase] 從資料庫抓取今日簽到紀錄 (${signedInCache.ids.size} 筆)`);
-                }
-                const signedInIds = signedInCache.ids;
+                document.getElementById('loader').innerText = "正在連線即時同步服務...";
 
-                // 3. 過濾掉已簽到的人
-                allData = members.filter(m => !signedInIds.has(m.memberId));
+                // 監聽今日該班級的所有變動
+                signinUnsubscribe = db.collection('signin_records')
+                    .where('className', '==', selectedClass)
+                    .where('time', '>=', startOfDay)
+                    .onSnapshot((snapshot) => {
+                        console.log(`[Realtime] 接收到 ${snapshot.docChanges().length} 筆資料變動`);
 
-                if (members.length > 0) {
-                    document.getElementById('loader').classList.add('hidden-custom');
-                    if (allData.length === 0) {
-                        document.getElementById('loader').innerHTML = "🎉 今日此班級人員已全數點名完畢！";
-                        document.getElementById('loader').classList.remove('hidden-custom');
-                        document.getElementById('dropdown-controls').classList.add('hidden-custom');
-                    } else {
-                        initDropdowns();
-                    }
-                } else {
-                    document.getElementById('loader').innerText = "此班級名冊無可用資料。";
-                }
+                        // 更新記憶體中的簽到名單
+                        snapshot.docs.forEach(doc => {
+                            signedInIds.add(doc.data().memberId);
+                        });
+
+                        // 每次資料變動（有人點名），就自動重繪清單
+                        allData = members.filter(m => !signedInIds.has(m.memberId));
+
+                        if (members.length > 0) {
+                            document.getElementById('loader').classList.add('hidden-custom');
+                            if (allData.length === 0) {
+                                document.getElementById('loader').innerHTML = "🎉 今日此班級人員已全數點名完畢！";
+                                document.getElementById('loader').classList.remove('hidden-custom');
+                                document.getElementById('dropdown-controls').classList.add('hidden-custom');
+                            } else {
+                                initDropdowns(); // 內部會觸發 renderList
+                            }
+                        } else {
+                            document.getElementById('loader').innerText = "此班級名冊無可用資料。";
+                        }
+                    }, (error) => {
+                        console.error("監聽失敗:", error);
+                        document.getElementById('loader').innerText = "即時同步連線失敗，請嘗試手動重新整理。";
+                    });
+
             } catch (err) {
                 console.error(err);
                 document.getElementById('loader').innerText = " Firestore 連線失敗: " + err.message;
@@ -715,11 +719,11 @@
         }
 
         async function forceRefreshRoster() {
-            if (!confirm(`確定要重新同步「${selectedClass}」的名冊與最新點名狀態嗎？`)) return;
+            if (!confirm(`確定要重新同步「${selectedClass}」的名冊嗎？`)) return;
             localStorage.removeItem(`roster_${selectedClass}`);
-            signedInCache.lastFetch = 0; // 強制失效
+            signedInIds.clear(); // 清空，讓監聽器重新抓取
             document.getElementById('loader').classList.remove('hidden-custom');
-            document.getElementById('loader').innerText = "正在同步最新數據...";
+            document.getElementById('loader').innerText = "正在同步最新名冊...";
             await loadFormData();
         }
 
