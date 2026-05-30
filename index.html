@@ -724,6 +724,8 @@
         }
 
         // --- [ 統計功能 ] ---
+        let lastStatsRecords = []; // 快取最近一次抓取的統計資料
+
         async function openStatsModal() {
             const modal = document.getElementById('stats-modal');
             const content = document.getElementById('stats-content');
@@ -734,59 +736,94 @@
             content.innerHTML = '<div class="text-center py-10 italic text-gray-400">數據計算中...</div>';
 
             try {
-                // 設定查詢時間範圍 (今日)
                 const startOfDay = new Date();
                 startOfDay.setHours(0, 0, 0, 0);
 
-                // 1. 取得今日該班級所有簽到紀錄
                 const snap = await db.collection('signin_records')
                     .where('className', '==', selectedClass)
                     .where('time', '>=', startOfDay)
                     .get();
 
-                const records = snap.docs.map(doc => doc.data());
-
-                if (records.length === 0) {
-                    content.innerHTML = '<div class="text-center py-10 text-gray-500">今日暫無簽到紀錄。</div>';
-                    return;
-                }
-
-                // 2. 統計各單位人數
-                const stats = {};
-                records.forEach(r => {
-                    const area = r.area || "未分類";
-                    if (!stats[area]) stats[area] = { present: 0, leave: 0 };
-                    if (r.status === "出席" || r.status.includes("定位")) stats[area].present++;
-                    else if (r.status === "請假") stats[area].leave++;
-                });
-
-                // 3. 渲染統計介面
-                let html = `
-                    <div class="bg-blue-600 text-white rounded-2xl p-4 mb-4 shadow-inner">
-                        <p class="text-xs opacity-80 font-bold uppercase tracking-widest">今日總計</p>
-                        <p class="text-4xl font-black">${records.length} <span class="text-sm">人次</span></p>
-                    </div>
-                `;
-
-                Object.keys(stats).sort().forEach(area => {
-                    const s = stats[area];
-                    html += `
-                        <div class="bg-gray-50 border border-gray-100 p-4 rounded-2xl flex justify-between items-center shadow-sm">
-                            <div>
-                                <p class="font-black text-gray-700">${area}</p>
-                                <p class="text-[10px] text-gray-400 font-bold">出席: ${s.present} | 請假: ${s.leave}</p>
-                            </div>
-                            <div class="text-right">
-                                <span class="text-2xl font-black text-blue-600">${s.present + s.leave}</span>
-                            </div>
-                        </div>
-                    `;
-                });
-
-                content.innerHTML = html;
+                lastStatsRecords = snap.docs.map(doc => doc.data());
+                renderStatsOverview();
             } catch (e) {
                 content.innerHTML = `<div class="text-red-500 p-4 font-bold">統計失敗: ${e.message}</div>`;
             }
+        }
+
+        function renderStatsOverview() {
+            const content = document.getElementById('stats-content');
+            if (lastStatsRecords.length === 0) {
+                content.innerHTML = '<div class="text-center py-10 text-gray-500">今日暫無簽到紀錄。</div>';
+                return;
+            }
+
+            const stats = {};
+            lastStatsRecords.forEach(r => {
+                const area = r.area || "未分類";
+                if (!stats[area]) stats[area] = { present: 0, leave: 0 };
+                if (r.status === "出席" || r.status.includes("定位")) stats[area].present++;
+                else if (r.status === "請假") stats[area].leave++;
+            });
+
+            let html = `
+                <div class="bg-blue-600 text-white rounded-2xl p-4 mb-4 shadow-inner">
+                    <p class="text-xs opacity-80 font-bold uppercase tracking-widest">今日總計</p>
+                    <p class="text-4xl font-black">${lastStatsRecords.length} <span class="text-sm">人次</span></p>
+                </div>
+                <p class="text-[10px] text-gray-400 font-bold mb-2 ml-1">💡 點擊下方區域可看詳細名單</p>
+            `;
+
+            Object.keys(stats).sort().forEach(area => {
+                const s = stats[area];
+                html += `
+                    <div class="bg-gray-50 border border-gray-100 p-4 rounded-2xl flex justify-between items-center shadow-sm cursor-pointer hover:bg-blue-50 active:scale-95 transition-all"
+                         onclick="showAreaDetails('${area}')">
+                        <div>
+                            <p class="font-black text-gray-700">${area}</p>
+                            <p class="text-[10px] text-gray-400 font-bold">出席: ${s.present} | 請假: ${s.leave}</p>
+                        </div>
+                        <div class="text-right">
+                            <span class="text-2xl font-black text-blue-600">${s.present + s.leave}</span>
+                        </div>
+                    </div>
+                `;
+            });
+            content.innerHTML = html;
+        }
+
+        function showAreaDetails(areaName) {
+            const content = document.getElementById('stats-content');
+            const filtered = lastStatsRecords.filter(r => (r.area || "未分類") === areaName);
+
+            let html = `
+                <div class="flex items-center gap-2 mb-4">
+                    <button onclick="renderStatsOverview()" class="p-2 bg-gray-100 rounded-lg hover:bg-gray-200">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                    </button>
+                    <span class="font-black text-blue-600 text-lg">${areaName} 名單</span>
+                </div>
+                <div class="space-y-1">
+            `;
+
+            filtered.sort((a, b) => (a.seatNum || 0) - (b.seatNum || 0)).forEach(r => {
+                const timeStr = r.time ? new Date(r.time.seconds * 1000).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' }) : '--:--';
+                const statusColor = r.status === "請假" ? "text-orange-500" : "text-green-600";
+                html += `
+                    <div class="flex justify-between items-center p-3 border-b border-gray-50 bg-white rounded-lg">
+                        <div class="flex items-center gap-3">
+                            <span class="text-xs font-mono bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded">${r.seatNum || '00'}</span>
+                            <span class="font-bold text-gray-700">${r.name}</span>
+                        </div>
+                        <div class="text-right">
+                            <span class="text-[10px] ${statusColor} font-black">${r.status}</span>
+                            <p class="text-[9px] text-gray-300 font-mono">${timeStr}</p>
+                        </div>
+                    </div>
+                `;
+            });
+            html += `</div>`;
+            content.innerHTML = html;
         }
 
         function closeStatsModal() {
