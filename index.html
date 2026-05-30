@@ -257,16 +257,17 @@
                 <!-- 管理員 Badge -->
                 <div class="flex justify-between items-center w-full mt-1">
                     <div id="scanner-info" class="flex gap-2">
-                        <div onclick="setStaffPassword()" 
+                        <div onclick="setStaffPassword()"
                             class="bg-white/20 backdrop-blur-md px-3 py-1 rounded-full text-[10px] text-white font-bold cursor-pointer hover:bg-white/30 transition-all">
                             👤 識別碼: <span id="display-staff">未設定</span>
                         </div>
-                        <div onclick="openRegistrationModal()" 
+                        <div onclick="openRegistrationModal()"
                             class="bg-blue-500/40 backdrop-blur-md px-3 py-1 rounded-full text-[10px] text-white font-bold cursor-pointer hover:bg-blue-500/60 transition-all border border-blue-400/30">
                             📝 註冊點名員
                         </div>
                     </div>
-                    <div id="admin-badge" class="hidden bg-amber-500 text-white text-[10px] font-black px-2 py-1 rounded-lg shadow-lg animate-bounce">
+                    <div id="admin-badge"
+                        class="hidden bg-amber-500 text-white text-[10px] font-black px-2 py-1 rounded-lg shadow-lg animate-bounce">
                         免定位模式
                     </div>
                 </div>
@@ -342,26 +343,29 @@
             <div class="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-blue-500 to-indigo-600"></div>
             <h4 class="font-black text-2xl text-gray-800 mb-2">👤 註冊點名員</h4>
             <p class="text-gray-500 text-sm mb-6 leading-relaxed">註冊後，您的點名紀錄將會自動標註您的姓名。</p>
-            
+
             <div class="space-y-4">
                 <div>
-                    <label class="text-[10px] font-black uppercase tracking-wider text-gray-400 ml-1">專屬密碼 (建議英文+數字)</label>
-                    <input type="text" id="reg-password" 
+                    <label class="text-[10px] font-black uppercase tracking-wider text-gray-400 ml-1">專屬密碼
+                        (建議英文+數字)</label>
+                    <input type="text" id="reg-password"
                         class="w-full mt-1 p-4 bg-gray-50 border-2 border-gray-100 rounded-2xl focus:border-blue-500 transition-all outline-none font-bold text-gray-700"
                         placeholder="例如: S001">
                 </div>
                 <div>
                     <label class="text-[10px] font-black uppercase tracking-wider text-gray-400 ml-1">您的真實姓名</label>
-                    <input type="text" id="reg-name" 
+                    <input type="text" id="reg-name"
                         class="w-full mt-1 p-4 bg-gray-50 border-2 border-gray-100 rounded-2xl focus:border-blue-500 transition-all outline-none font-bold text-gray-700"
                         placeholder="例如: 王大明">
                 </div>
             </div>
 
             <div class="flex gap-3 mt-8">
-                <button class="flex-1 p-4 bg-gray-100 rounded-2xl font-black text-gray-500 hover:bg-gray-200 transition-colors" 
+                <button
+                    class="flex-1 p-4 bg-gray-100 rounded-2xl font-black text-gray-500 hover:bg-gray-200 transition-colors"
                     onclick="closeRegistrationModal()">取消</button>
-                <button class="flex-1 p-4 bg-blue-600 text-white rounded-2xl font-black shadow-lg shadow-blue-200 hover:bg-blue-700 active:scale-95 transition-all"
+                <button
+                    class="flex-1 p-4 bg-blue-600 text-white rounded-2xl font-black shadow-lg shadow-blue-200 hover:bg-blue-700 active:scale-95 transition-all"
                     id="confirm-reg-btn" onclick="registerStaff()">確認註冊</button>
             </div>
         </div>
@@ -457,7 +461,7 @@
             const btn = document.getElementById('confirm-reg-btn');
 
             if (!pass || !name) { alert("請填寫完整資訊"); return; }
-            
+
             const originalText = btn.innerText;
             btn.disabled = true;
             btn.innerText = "註冊中...";
@@ -711,10 +715,11 @@
                     className: selectedClass,
                     staff: staffName || "未知"
                 });
-                // 💾 背景備份到 Google Sheets（no-cors 避免 Preflight 攔截）
+                // 💾 即時備份到 Google Sheets（text/plain 避免 Preflight，keepalive 確保送達）
                 fetch(GAS_URL, {
                     method: 'POST',
-                    mode: 'no-cors',
+                    headers: { 'Content-Type': 'text/plain' },
+                    keepalive: true,
                     body: JSON.stringify({
                         action: 'logToSheets', memberId: item.memberId,
                         name: item.name, gender: item.gender, seatNum: item.seatNum,
@@ -962,10 +967,11 @@
                         className: qrCurrentClass,
                         staff: staffName || "未知"
                     });
-                    // 💾 背景備份到 Google Sheets（no-cors 避免 Preflight 攔截）
+                    // 💾 即時備份到 Google Sheets（text/plain 避免 Preflight，keepalive 確保送達）
                     fetch(GAS_URL, {
                         method: 'POST',
-                        mode: 'no-cors',
+                        headers: { 'Content-Type': 'text/plain' },
+                        keepalive: true,
                         body: JSON.stringify({
                             action: 'logToSheets', memberId: memberid,
                             name: result.data.name, gender: result.data.gender,
