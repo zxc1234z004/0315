@@ -211,6 +211,21 @@
                             <option value="">-- 請選擇單位 --</option>
                         </select>
                     </div>
+                    <!-- 快取同步控制 -->
+                    <div class="flex justify-end pr-1">
+                        <button onclick="forceRefreshRoster()"
+                            class="text-[10px] text-blue-500 font-bold flex items-center gap-1 hover:underline">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24"
+                                fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"
+                                stroke-linejoin="round">
+                                <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                                <path d="M3 3v5h5" />
+                                <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
+                                <path d="M16 16h5v5" />
+                            </svg>
+                            同步新名冊 (目前已快取)
+                        </button>
+                    </div>
                 </div>
 
                 <div id="loader" class="hidden-custom text-center py-5 italic text-gray-500">載入中...</div>
@@ -423,6 +438,11 @@
         // --- [ 手動點名邏輯變數 ] ---
         let allData = [];
         let rosterCache = {}; // 記憶體快取：{ className: [members...] }
+        let signedInCache = {
+            ids: new Set(),
+            lastFetch: 0,
+            className: ""
+        }; // 新增：簽到狀態快取（3 分鐘效期）
         let selectedClass = "";
         let currentTargetItem = null;
         let currentTargetBtn = null;
@@ -634,33 +654,44 @@
 
         async function loadFormData() {
             try {
-                // 1. 取得所有成員 (優先檢查快取)
+                // 1. 取得所有成員 (優先檢查 localStorage 持久快取)
                 let members = [];
                 const cacheKey = `roster_${selectedClass}`;
-                const cached = sessionStorage.getItem(cacheKey);
+                const cached = localStorage.getItem(cacheKey);
 
                 if (cached) {
                     members = JSON.parse(cached);
-                    console.log(`[Cache] 已從快取載入 ${selectedClass} 名冊`);
+                    console.log(`[Cache] 已從 localStorage 載入 ${selectedClass} 名冊`);
                 } else {
                     const memberSnap = await db.collection('members')
                         .where('className', '==', selectedClass)
                         .where('eligible', '==', true)
                         .get();
                     members = memberSnap.docs.map(doc => doc.data());
-                    // 存入快取以免重複讀取
-                    sessionStorage.setItem(cacheKey, JSON.stringify(members));
+                    // 存入持久快取，將多人重複讀取的數量降至幾乎為 0
+                    localStorage.setItem(cacheKey, JSON.stringify(members));
                     console.log(`[Firebase] 從資料庫下載 ${selectedClass} 名冊 (${members.length} 筆)`);
                 }
 
-                // 2. 取得今日已簽到紀錄 (作法 A：每日重置，只過濾今天已點名的人)
+                // 2. 取得今日已簽到紀錄 (作法 A：每日重置)
+                // 優化：若 3 分鐘內抓過同班級的簽到名單，直接用快取，省下讀取費
+                const now = Date.now();
                 const startOfDay = new Date();
                 startOfDay.setHours(0, 0, 0, 0);
-                const signinSnap = await db.collection('signin_records')
-                    .where('className', '==', selectedClass)
-                    .where('time', '>=', startOfDay)
-                    .get();
-                const signedInIds = new Set(signinSnap.docs.map(doc => doc.data().memberId));
+
+                if (signedInCache.className === selectedClass && (now - signedInCache.lastFetch < 180000)) {
+                    console.log(`[Cache] 已簽到名單尚在效效期內，跳過資料庫讀取`);
+                } else {
+                    const signinSnap = await db.collection('signin_records')
+                        .where('className', '==', selectedClass)
+                        .where('time', '>=', startOfDay)
+                        .get();
+                    signedInCache.ids = new Set(signinSnap.docs.map(doc => doc.data().memberId));
+                    signedInCache.lastFetch = now;
+                    signedInCache.className = selectedClass;
+                    console.log(`[Firebase] 從資料庫抓取今日簽到紀錄 (${signedInCache.ids.size} 筆)`);
+                }
+                const signedInIds = signedInCache.ids;
 
                 // 3. 過濾掉已簽到的人
                 allData = members.filter(m => !signedInIds.has(m.memberId));
@@ -668,7 +699,7 @@
                 if (members.length > 0) {
                     document.getElementById('loader').classList.add('hidden-custom');
                     if (allData.length === 0) {
-                        document.getElementById('loader').innerHTML = "🎉 此班級人員已全數點名完畢！";
+                        document.getElementById('loader').innerHTML = "🎉 今日此班級人員已全數點名完畢！";
                         document.getElementById('loader').classList.remove('hidden-custom');
                         document.getElementById('dropdown-controls').classList.add('hidden-custom');
                     } else {
@@ -681,6 +712,15 @@
                 console.error(err);
                 document.getElementById('loader').innerText = " Firestore 連線失敗: " + err.message;
             }
+        }
+
+        async function forceRefreshRoster() {
+            if (!confirm(`確定要重新同步「${selectedClass}」的名冊與最新點名狀態嗎？`)) return;
+            localStorage.removeItem(`roster_${selectedClass}`);
+            signedInCache.lastFetch = 0; // 強制失效
+            document.getElementById('loader').classList.remove('hidden-custom');
+            document.getElementById('loader').innerText = "正在同步最新數據...";
+            await loadFormData();
         }
 
         function initDropdowns() {
