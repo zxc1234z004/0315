@@ -409,18 +409,20 @@
 
         // --- [ Firebase 初始化 ] ---
         const firebaseConfig = {
-            apiKey: "AIzaSyC6CbiobydaP-BBP-FAFcUyRF1cMpdNuRc",
-            authDomain: "roll-call-system-0411.firebaseapp.com",
-            projectId: "roll-call-system-0411",
-            storageBucket: "roll-call-system-0411.firebasestorage.app",
-            messagingSenderId: "24202815510",
-            appId: "1:24202815510:web:927cd30e9b44402be66d37"
+            apiKey: "AIzaSyC2x2aoVR2cjEqhGUoL0WI1TL0Ho4Zw3rM",
+            authDomain: "text0531.firebaseapp.com",
+            projectId: "text0531",
+            storageBucket: "text0531.firebasestorage.app",
+            messagingSenderId: "555557319078",
+            appId: "1:555557319078:web:0a33c5cb3c7e5268f11f67",
+            measurementId: "G-L58NLSHSLX"
         };
         firebase.initializeApp(firebaseConfig);
         const db = firebase.firestore();
 
         // --- [ 手動點名邏輯變數 ] ---
         let allData = [];
+        let rosterCache = {}; // 記憶體快取：{ className: [members...] }
         let selectedClass = "";
         let currentTargetItem = null;
         let currentTargetBtn = null;
@@ -632,12 +634,24 @@
 
         async function loadFormData() {
             try {
-                // 1. 取得所有成員
-                const memberSnap = await db.collection('members')
-                    .where('className', '==', selectedClass)
-                    .where('eligible', '==', true)
-                    .get();
-                let members = memberSnap.docs.map(doc => doc.data());
+                // 1. 取得所有成員 (優先檢查快取)
+                let members = [];
+                const cacheKey = `roster_${selectedClass}`;
+                const cached = sessionStorage.getItem(cacheKey);
+
+                if (cached) {
+                    members = JSON.parse(cached);
+                    console.log(`[Cache] 已從快取載入 ${selectedClass} 名冊`);
+                } else {
+                    const memberSnap = await db.collection('members')
+                        .where('className', '==', selectedClass)
+                        .where('eligible', '==', true)
+                        .get();
+                    members = memberSnap.docs.map(doc => doc.data());
+                    // 存入快取以免重複讀取
+                    sessionStorage.setItem(cacheKey, JSON.stringify(members));
+                    console.log(`[Firebase] 從資料庫下載 ${selectedClass} 名冊 (${members.length} 筆)`);
+                }
 
                 // 2. 取得今日已簽到紀錄 (作法 A：每日重置，只過濾今天已點名的人)
                 const startOfDay = new Date();
