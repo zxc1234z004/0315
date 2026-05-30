@@ -1,13 +1,22 @@
 /**
- * 統合版後端：支援使用者 QR Code 簽到與管理者手動點名系統
- * * 【試算表分頁配置要求】
+ * 統合版後端（Firebase 升級版）
+ * 【架構說明】
+ * - 所有「寫入」操作（簽到紀錄、人員管理）已改由前端直接寫入 Firebase
+ * - GAS 只負責「讀取」Google Sheets（地點設定、班級清單、名冊查詢、G欄資格驗證）
+ * - syncFirebaseToSheets() 負責定時將 Firebase 紀錄同步回 Google Sheets
+ *
+ * 【試算表分頁配置要求】
  * 1. 「系統設定」：A:緯度, B:經度, C:距離(m), D:地點名稱, E:管理員密碼
  * 2. 「班級設定」：A:班級名稱 (若無此分頁，系統會自動掃描「名冊_」開頭的分頁)
- * 3. 「人員設定」：A:密碼, B:姓名 (讓系統辨識點名的人員是誰)
- * 4. 「簽到紀錄」：系統寫入用
- * 欄位順序：時間, ID, 姓名, 性別, 座號, 區域, 地點, 驗證方式, 請假原因, 班名, 紀錄人
- * 5. 「名冊_班名」：格式 A:memberId, B:性別, C:座號, D:姓名, E:單位/區域
+ * 3. 「名冊_班名」：格式 A:memberId, B:性別, C:座號, D:姓名, E:單位/區域, G:狀態(0=未簽到,允許掃描)
+ *
+ * 【Firebase REST API 設定】
+ * FIREBASE_PROJECT_ID：你的 Firebase 專案 ID
+ * Firestore 規則需允許 GAS（服務帳號）讀取，或設定為公開讀取（測試用）
  */
+
+// ⚙️ 請填入你的 Firebase 專案 ID（firebaseConfig 裡的 projectId）
+const FIREBASE_PROJECT_ID = "roll-call-system-0411";
 
 const SPREADSHEET_ID = SpreadsheetApp.getActiveSpreadsheet().getId();
 
@@ -60,10 +69,10 @@ function doGet(e) {
     });
   }
 
-  // 2. 取得特定班級名冊 (管理者點名用 - 依據使用者需求，優先讀取"缺席名單_")
+  // 2. 取得特定班級名冊 (管理者手動點名用)
   if (action === 'getMemberList') {
     const className = e.parameter.className;
-    const sheetName = "缺席名單_" + className;
+    const sheetName = "名冊_" + className;   // 讀取名冊 (與 init 前綴一致)
     const sheet = ss.getSheetByName(sheetName);
     
     if (!sheet) return createJsonResponse("error", "找不到工作表: " + sheetName);
@@ -71,16 +80,18 @@ function doGet(e) {
     const data = sheet.getDataRange().getValues();
     if (data.length < 2) return createJsonResponse("success", "名冊無資料", []);
     
-    // 跳過標題列，讀取 A 到 E 欄
-    const list = data.slice(1).map(row => ({
-      memberId: String(row[0]),
-      gender: row[1],
-      seatNum: row[2],
-      name: row[3],
-      area: row[4]
-    })).filter(item => item.name !== "");
+    // 跳過標題列，只回傳 G欄=0（允許點名）的成員
+    const eligible = data.slice(1)
+      .filter(row => row[3] !== "" && String(row[6]).trim() === "0")
+      .map(row => ({
+        memberId: String(row[0]),
+        gender: row[1],
+        seatNum: row[2],
+        name: row[3],
+        area: row[4]
+      }));
     
-    return createJsonResponse("success", "OK", list);
+    return createJsonResponse("success", "OK", eligible);
   }
 
   return createJsonResponse("error", "未知的指令 (Invalid Action)");
@@ -88,53 +99,16 @@ function doGet(e) {
 
 function doPost(e) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  // 調整欄位順序：時間, ID, 姓名, 性別, 座號, 區域, 地點, 驗證方式, 請假原因, 班名, 紀錄人
-  const logHeaders = ["時間", "ID", "姓名", "性別", "座號", "區域", "地點", "驗證方式", "請假原因", "班名", "紀錄人"];
-  const logSheet = getOrCreateSheet(ss, "簽到紀錄", logHeaders);
 
   try {
     const postData = JSON.parse(e.postData.contents);
     const action = postData.action;
 
-    // C. 註冊新人員邏輯
-    if (action === 'registerStaff') {
-      const pass = String(postData.password).trim();
-      const name = String(postData.name).trim();
-      if (!pass || !name) return createJsonResponse("error", "密碼與姓名不可為空");
-
-      const staffSheet = getOrCreateSheet(ss, "人員設定", ["密碼", "姓名"]);
-      const data = staffSheet.getDataRange().getValues();
-      
-      // 檢查密碼是否重複
-      for (let i = 1; i < data.length; i++) {
-        if (String(data[i][0]).trim() === pass) {
-          return createJsonResponse("error", "此密碼已被註冊(" + data[i][1] + ")，請換一個或直接登入");
-        }
-      }
-
-      staffSheet.appendRow([pass, name]);
-      return createJsonResponse("success", "註冊成功");
-    }
-
-    // D. 驗證人員識別碼邏輯 (供前端登入時使用)
-    if (action === 'verifyStaff') {
-      const name = getStaffName(ss, postData.password);
-      if (name) {
-        return createJsonResponse("success", "驗證成功", { name: name });
-      } else {
-        return createJsonResponse("error", "⚠️ 識別碼無效或尚未註冊，請聯繫管理員。");
-      }
-    }
-
-    const staffName = getStaffName(ss, postData.staffPassword); // 識別點名的人是誰
-
-    // A. 使用者掃碼簽到邏輯
+    /**
+     * 成員資格驗證（QR Code 掃碼使用）
+     * 注意：寫入紀錄已改由前端直接寫入 Firebase，GAS 只負責驗證名冊資格
+     */
     if (action === 'signin') {
-      // 🚨 安全強化：如果人員未註冊，則攔截並回傳錯誤，不進行紀錄
-      if (!staffName) {
-        return createJsonResponse("error", "⚠️ 您的識別碼尚未註冊，無法進行簽到。請先點選「註冊點名員」。");
-      }
-
       const targetId = String(postData.memberId).trim();
       const className = postData.className;
       const targetSheetName = "名冊_" + className;
@@ -147,6 +121,13 @@ function doPost(e) {
 
       for (let i = 1; i < memberData.length; i++) {
         if (String(memberData[i][0]).trim() === targetId) {
+          const gValue = String(memberData[i][6]).trim(); // G 欄 (index 6)
+
+          // 🚨 篩選條件：G 欄必須為 "0" 才允許簽到
+          if (gValue !== "0") {
+            return createJsonResponse("error", `⛔ 此成員目前無法簽到 (狀態: ${gValue || '非0'})，已略過。`);
+          }
+
           foundMember = {
             gender: memberData[i][1],
             seatNum: memberData[i][2],
@@ -158,42 +139,33 @@ function doPost(e) {
       }
 
       if (foundMember) {
-        logSheet.appendRow([
-          new Date(),           // 時間
-          targetId,             // ID
-          foundMember.name,     // 姓名
-          foundMember.gender,   // 性別
-          foundMember.seatNum,  // 座號
-          foundMember.area,     // 區域
-          postData.locationName,// 地點
-          postData.status || "定位驗證成功", // 驗證方式
-          "",                   // 請假原因 (自動簽到通常為空)
-          className,            // 班名
-          staffName             // 紀錄人 (掃描者)
-        ]);
-        
-        return createJsonResponse("success", "簽到成功", foundMember);
+        return createJsonResponse("success", "驗證通過", foundMember);
       } else {
         return createJsonResponse("error", "在「" + className + "」名冊中查無此 ID");
       }
     }
 
-    // B. 管理者手動點名邏輯
-    if (action === 'updateStatus') {
+    /**
+     * 備份紀錄至 Google Sheets（由前端 Firebase 寫入後，靜默呼叫此功能）
+     * 不影響前端速度，背景執行即可
+     */
+    if (action === 'logToSheets') {
+      const logHeaders = ["時間", "ID", "姓名", "性別", "座號", "區域", "地點", "驗證方式", "請假原因", "班名", "紀錄人"];
+      const logSheet = getOrCreateSheet(ss, "簽到紀錄", logHeaders);
       logSheet.appendRow([
-        new Date(),             // 時間
-        postData.memberId,      // ID
-        postData.name,          // 姓名
-        postData.gender,        // 性別
-        postData.seatNum,       // 座號
-        postData.area,          // 區域
-        "管理者手動",           // 地點
-        postData.status,        // 驗證方式 (出席/缺席/請假等)
-        postData.reason || "",  // 請假原因
-        postData.className,      // 班名
-        staffName               // 紀錄人 (操作者)
+        new Date(),
+        postData.memberId    || "",
+        postData.name        || "",
+        postData.gender      || "",
+        postData.seatNum     || "",
+        postData.area        || "",
+        postData.locationName || "",
+        postData.status      || "",
+        postData.reason      || "",
+        postData.className   || "",
+        postData.staff       || ""
       ]);
-      return createJsonResponse("success", "✅ " + postData.name + " 紀錄成功");
+      return createJsonResponse("success", "已備份至試算表");
     }
 
     return createJsonResponse("error", "未知的 Post 指令");
@@ -203,21 +175,130 @@ function doPost(e) {
 }
 
 /**
- * 輔助函式：根據密碼查詢人員姓名
+ * ====================================================
+ * 🔄 Firebase → Google Sheets 定時同步
+ * 建議設定：每 5~10 分鐘觸發一次 syncFirebaseToSheets()
+ * 設定方式：GAS 編輯器 → 觸發條件 → 新增觸發條件
+ *           函式名稱: syncFirebaseToSheets
+ *           基於時間 → 分鐘計時器 → 每 5 分鐘
+ * ====================================================
  */
-function getStaffName(ss, password) {
-  if (!password) return null;
+function syncFirebaseToSheets() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const logHeaders = ["時間", "ID", "姓名", "性別", "座號", "區域", "地點", "驗證方式", "請假原因", "班名", "紀錄人"];
+  const logSheet = getOrCreateSheet(ss, "簽到紀錄", logHeaders);
   
-  const staffSheet = ss.getSheetByName("人員設定");
-  if (!staffSheet) return null; 
-  
-  const data = staffSheet.getDataRange().getValues();
-  for (let i = 1; i < data.length; i++) {
-    if (String(data[i][0]).trim() === String(password).trim()) {
-      return data[i][1]; // 回傳對應的姓名
-    }
+  const props = PropertiesService.getScriptProperties();
+  const lastSyncStr = props.getProperty('lastSyncTime');
+  // 上次同步時間（ISO 字串），若沒有則從 24 小時前開始
+  const lastSyncTime = lastSyncStr ? new Date(lastSyncStr) : new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+  // 讀取試算表已有的 Firebase Doc ID，避免重複寫入
+  const existingIds = new Set();
+  const lastRow = logSheet.getLastRow();
+  // 「Firestore Doc ID」存在 L 欄（第12欄），標題為 "FirestoreDocId"
+  if (lastRow >= 2) {
+    const idCol = logSheet.getRange(2, 12, lastRow - 1, 1).getValues();
+    idCol.forEach(r => { if (r[0]) existingIds.add(String(r[0])); });
   }
-  return null; // 找不到則回傳 null
+  // 補上 L 欄標題（若缺少）
+  if (logSheet.getRange(1, 12).getValue() !== "FirestoreDocId") {
+    logSheet.getRange(1, 12).setValue("FirestoreDocId");
+  }
+
+  // 呼叫 Firestore REST API 取得簽到紀錄
+  // 使用 structuredQuery 篩選出 lastSyncTime 之後的紀錄
+  const apiUrl = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents:runQuery`;
+  const token = ScriptApp.getOAuthToken();
+
+  const queryBody = {
+    structuredQuery: {
+      from: [{ collectionId: "signin_records" }],
+      orderBy: [{ field: { fieldPath: "time" }, direction: "ASCENDING" }],
+      // 只撈 lastSyncTime 之後的資料（避免資料量過大）
+      where: {
+        fieldFilter: {
+          field: { fieldPath: "time" },
+          op: "GREATER_THAN",
+          value: { timestampValue: lastSyncTime.toISOString() }
+        }
+      },
+      limit: 500  // 每次最多同步 500 筆
+    }
+  };
+
+  try {
+    const response = UrlFetchApp.fetch(apiUrl, {
+      method: 'POST',
+      contentType: 'application/json',
+      headers: { Authorization: 'Bearer ' + token },
+      payload: JSON.stringify(queryBody),
+      muteHttpExceptions: true
+    });
+
+    const results = JSON.parse(response.getContentText());
+    if (!Array.isArray(results)) {
+      console.error('[syncFirebaseToSheets] 非預期回應:', response.getContentText());
+      return;
+    }
+
+    const rows = [];
+    let newLastSyncTime = lastSyncTime;
+
+    results.forEach(item => {
+      if (!item.document) return; // 空回應跳過
+      const docName = item.document.name; // projects/.../documents/signin_records/DOC_ID
+      const docId = docName.split('/').pop();
+      if (existingIds.has(docId)) return; // 已同步，跳過
+
+      const fields = item.document.fields || {};
+      const getStr = (f) => (fields[f] && (fields[f].stringValue !== undefined ? fields[f].stringValue : String(fields[f].integerValue || ''))) || '';
+      const getTs  = (f) => fields[f] && fields[f].timestampValue ? new Date(fields[f].timestampValue) : '';
+
+      const recordTime = getTs('time');
+      if (recordTime && recordTime > newLastSyncTime) newLastSyncTime = recordTime;
+
+      rows.push([
+        recordTime || new Date(),
+        getStr('memberId'),
+        getStr('name'),
+        getStr('gender'),
+        getStr('seatNum'),
+        getStr('area'),
+        getStr('locationName'),
+        getStr('status'),
+        getStr('reason'),
+        getStr('className'),
+        getStr('staff'),
+        docId  // L 欄存 Firestore Doc ID，防重複
+      ]);
+    });
+
+    if (rows.length > 0) {
+      logSheet.getRange(logSheet.getLastRow() + 1, 1, rows.length, 12).setValues(rows);
+      console.log(`[syncFirebaseToSheets] 同步完成，新增 ${rows.length} 筆紀錄`);
+    } else {
+      console.log('[syncFirebaseToSheets] 沒有新紀錄需要同步');
+    }
+
+    // 更新最後同步時間
+    props.setProperty('lastSyncTime', newLastSyncTime.toISOString());
+
+  } catch (err) {
+    console.error('[syncFirebaseToSheets] 執行失敗:', err.toString());
+  }
+}
+
+/**
+ * 一次性：將 Firebase 所有歷史紀錄全部同步到 Sheets（初始化用）
+ * 使用方式：手動在 GAS 編輯器執行此函式一次即可
+ */
+function syncAllHistoryFromFirebase() {
+  // 清除上次同步記錄，讓 syncFirebaseToSheets 從頭讀取
+  PropertiesService.getScriptProperties().deleteProperty('lastSyncTime');
+  // 重設起始時間為很久以前（撈全部資料）
+  PropertiesService.getScriptProperties().setProperty('lastSyncTime', new Date('2020-01-01').toISOString());
+  syncFirebaseToSheets();
 }
 
 /**
@@ -229,7 +310,6 @@ function getOrCreateSheet(ss, name, headers) {
     sheet = ss.insertSheet(name);
     sheet.appendRow(headers);
   } else {
-    // 檢查欄位數量，若不足（升級時）自動補上標題
     const lastCol = sheet.getLastColumn();
     if (lastCol < headers.length) {
       sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
