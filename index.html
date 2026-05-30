@@ -701,8 +701,8 @@
             btn.disabled = true;
             btn.innerText = "...";
             try {
-                // ✅ 改用 Firebase 直接寫入（解決多人同時點名的延遲問題）
-                await db.collection('signin_records').add({
+                // ✅ Firebase 直接寫入，並取得 Doc ID 用於去重
+                const docRef = await db.collection('signin_records').add({
                     time: firebase.firestore.FieldValue.serverTimestamp(),
                     memberId: item.memberId,
                     name: item.name,
@@ -715,7 +715,7 @@
                     className: selectedClass,
                     staff: staffName || "未知"
                 });
-                // 💾 即時備份到 Google Sheets（text/plain 避免 Preflight，keepalive 確保送達）
+                // 💾 即時備份到 Google Sheets（附上 firestoreDocId 防定時器重複寫入）
                 fetch(GAS_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'text/plain' },
@@ -725,7 +725,8 @@
                         name: item.name, gender: item.gender, seatNum: item.seatNum,
                         area: item.area, locationName: "管理者手動",
                         status: status, reason: reason || "",
-                        className: selectedClass, staff: staffName || "未知"
+                        className: selectedClass, staff: staffName || "未知",
+                        firestoreDocId: docRef.id
                     })
                 }).catch(e => console.warn('[GAS logToSheets]', e));
                 btn.innerText = "已送出";
@@ -953,8 +954,8 @@
                 const result = await response.json();
 
                 if (result.status === "success") {
-                    // 步驟2：Firebase 寫入紀錄（毫秒級，不排隊）
-                    await db.collection('signin_records').add({
+                    // 步驟2：Firebase 寫入紀錄，並取得 Doc ID 用於去重
+                    const docRef = await db.collection('signin_records').add({
                         time: firebase.firestore.FieldValue.serverTimestamp(),
                         memberId: memberid,
                         name: result.data.name,
@@ -967,7 +968,7 @@
                         className: qrCurrentClass,
                         staff: staffName || "未知"
                     });
-                    // 💾 即時備份到 Google Sheets（text/plain 避免 Preflight，keepalive 確保送達）
+                    // 💾 即時備份到 Google Sheets（附上 firestoreDocId 防定時器重複寫入）
                     fetch(GAS_URL, {
                         method: 'POST',
                         headers: { 'Content-Type': 'text/plain' },
@@ -978,7 +979,8 @@
                             seatNum: result.data.seatNum, area: result.data.area,
                             locationName: currentLoc.name,
                             status: isAdminMode ? "免定位模式" : "定位驗證成功",
-                            reason: "", className: qrCurrentClass, staff: staffName || "未知"
+                            reason: "", className: qrCurrentClass, staff: staffName || "未知",
+                            firestoreDocId: docRef.id
                         })
                     }).catch(e => console.warn('[GAS logToSheets]', e));
                     document.getElementById('display-prayer').innerText = result.data.name || "未知";
