@@ -345,10 +345,6 @@
         </div>
     </div>
 
-    </div>
-    </div>
-    </div>
-
     <!-- 統計數據 Modal -->
     <div id="stats-modal"
         class="fixed inset-0 bg-black/80 flex items-center justify-center z-[11000] backdrop-blur-md hidden-custom">
@@ -636,17 +632,34 @@
 
         async function loadFormData() {
             try {
-                // ✅ 改用 Firestore 查詢名冊 (過濾當前班級 + eligible=true)
-                const snap = await db.collection('members')
+                // 1. 取得所有成員
+                const memberSnap = await db.collection('members')
                     .where('className', '==', selectedClass)
                     .where('eligible', '==', true)
                     .get();
+                let members = memberSnap.docs.map(doc => doc.data());
 
-                allData = snap.docs.map(doc => doc.data());
+                // 2. 取得今日已簽到紀錄 (作法 A：每日重置，只過濾今天已點名的人)
+                const startOfDay = new Date();
+                startOfDay.setHours(0, 0, 0, 0);
+                const signinSnap = await db.collection('signin_records')
+                    .where('className', '==', selectedClass)
+                    .where('time', '>=', startOfDay)
+                    .get();
+                const signedInIds = new Set(signinSnap.docs.map(doc => doc.data().memberId));
 
-                if (allData.length > 0) {
+                // 3. 過濾掉已簽到的人
+                allData = members.filter(m => !signedInIds.has(m.memberId));
+
+                if (members.length > 0) {
                     document.getElementById('loader').classList.add('hidden-custom');
-                    initDropdowns();
+                    if (allData.length === 0) {
+                        document.getElementById('loader').innerHTML = "🎉 此班級人員已全數點名完畢！";
+                        document.getElementById('loader').classList.remove('hidden-custom');
+                        document.getElementById('dropdown-controls').classList.add('hidden-custom');
+                    } else {
+                        initDropdowns();
+                    }
                 } else {
                     document.getElementById('loader').innerText = "此班級名冊無可用資料。";
                 }
@@ -815,6 +828,7 @@
 
         async function submitFormData(btn, item, status, reason = "") {
             const originalText = btn.innerText;
+            const row = btn.closest('.row'); // 取得人員那一列
             btn.disabled = true;
             btn.innerText = "...";
             try {
@@ -846,8 +860,22 @@
                         firestoreDocId: docRef.id
                     })
                 }).catch(e => console.warn('[GAS logToSheets]', e));
-                btn.innerText = "已送出";
-                btn.style.backgroundColor = "#999";
+
+                // ✅ 點完名後，直接從名冊中移除這一列
+                if (row) {
+                    row.style.opacity = '0';
+                    row.style.transform = 'translateX(20px)';
+                    row.style.transition = 'all 0.3s ease';
+                    setTimeout(() => {
+                        row.remove();
+                        // 同時更新記憶體中的資料
+                        allData = allData.filter(d => d.memberId !== item.memberId);
+                        // 如果該單位點完了，重新整理下拉選單
+                        if (allData.filter(d => d.area === item.area).length === 0) {
+                            initDropdowns();
+                        }
+                    }, 300);
+                }
             } catch (err) {
                 alert("傳送失敗：" + err.message);
                 btn.innerText = originalText;
