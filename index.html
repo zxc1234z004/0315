@@ -223,7 +223,7 @@
                                 <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
                                 <path d="M16 16h5v5" />
                             </svg>
-                            同步新名冊 (目前已快取,'不要點')
+                            同步新名冊 (目前已快取)
                         </button>
                     </div>
                 </div>
@@ -687,9 +687,13 @@
                     .onSnapshot((snapshot) => {
                         console.log(`[Realtime] 接收到 ${snapshot.docChanges().length} 筆資料變動`);
 
-                        // 更新記憶體中的簽到名單
+                        // 更新記憶體中的簽到名單：只有「非請假」的人才要隱藏
+                        signedInIds.clear();
                         snapshot.docs.forEach(doc => {
-                            signedInIds.add(doc.data().memberId);
+                            const data = doc.data();
+                            if (data.status !== "請假") {
+                                signedInIds.add(data.memberId);
+                            }
                         });
 
                         // 每次資料變動（有人點名），就自動重繪清單
@@ -956,20 +960,24 @@
                     })
                 }).catch(e => console.warn('[GAS logToSheets]', e));
 
-                // ✅ 點完名後，直接從名冊中移除這一列
-                if (row) {
+                // ✅ 點完名後
+                if (status !== "請假" && row) {
+                    // 如果是「出席」，則從名冊中移除這一列
                     row.style.opacity = '0';
                     row.style.transform = 'translateX(20px)';
                     row.style.transition = 'all 0.3s ease';
                     setTimeout(() => {
                         row.remove();
-                        // 同時更新記憶體中的資料
                         allData = allData.filter(d => d.memberId !== item.memberId);
-                        // 如果該單位點完了，重新整理下拉選單
                         if (allData.filter(d => d.area === item.area).length === 0) {
                             initDropdowns();
                         }
                     }, 300);
+                } else if (status === "請假" && row) {
+                    // 如果是「請假」，人員留在名單上，按鈕變更文字作為提示
+                    btn.innerText = "已請假";
+                    btn.disabled = false;
+                    btn.classList.replace('btn-leave', 'bg-gray-400');
                 }
             } catch (err) {
                 alert("傳送失敗：" + err.message);
