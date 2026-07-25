@@ -651,6 +651,7 @@
         }
 
         async function loadFormData() {
+
             try {
                 // 1. 取得所有成員 (優先檢查 localStorage 持久快取)
                 let members = [];
@@ -661,15 +662,19 @@
                     members = JSON.parse(cached);
                     console.log(`[Cache] 已從 localStorage 載入 ${selectedClass} 名冊`);
                 } else {
-                    const memberSnap = await db.collection('members')
-                        .where('className', '==', selectedClass)
-                        .where('eligible', '==', true)
-                        .get();
-                    members = memberSnap.docs.map(doc => doc.data());
-                    // 存入持久快取，將多人重複讀取的數量降至幾乎為 0
-                    localStorage.setItem(cacheKey, JSON.stringify(members));
-                    console.log(`[Firebase] 從資料庫下載 ${selectedClass} 名冊 (${members.length} 筆)`);
+                    const rosterDoc = await db.collection('rosters').doc(selectedClass).get();
+                    if (rosterDoc.exists) {
+                        const rawMembers = rosterDoc.data().members || [];
+                        // 僅過濾 eligible 為 true 的成員（允許簽到）
+                        members = rawMembers.filter(m => m.eligible === true);
+                        // 存入持久快取，將多人重複讀取的數量降至幾乎為 0
+                        localStorage.setItem(cacheKey, JSON.stringify(members));
+                        console.log(`[Firebase] 從資料庫下載打包名冊 ${selectedClass} (${members.length} 筆)`);
+                    } else {
+                        throw new Error(`找不到班級「${selectedClass}」的打包名冊，請先在 Google Sheets 重新執行「移轉設定與名冊到 Firebase」！`);
+                    }
                 }
+
 
                 // 2. 啟動「極致省錢」即時監聽 (onSnapshot)
                 // 如果已經有在監聽別的班級，先解除
@@ -945,20 +950,9 @@
                     className: selectedClass,
                     staff: staffName || "未知"
                 });
-                // 💾 即時備份到 Google Sheets（附上 firestoreDocId 防定時器重複寫入）
-                fetch(GAS_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'text/plain' },
-                    keepalive: true,
-                    body: JSON.stringify({
-                        action: 'logToSheets', memberId: item.memberId,
-                        name: item.name, gender: item.gender, seatNum: item.seatNum,
-                        area: item.area, locationName: "管理者手動",
-                        status: status, reason: reason || "",
-                        className: selectedClass, staff: staffName || "未知",
-                        firestoreDocId: docRef.id
-                    })
-                }).catch(e => console.warn('[GAS logToSheets]', e));
+                // 💾 已寫入 Firestore (由背景同步至 Google Sheets，不在此同步請求以免阻塞 UI)
+                console.log(`[Firebase] 寫入成功 docId: ${docRef.id}，稍後定時自動同步至 Sheets`);
+
 
                 // ✅ 點完名後
                 if (status !== "請假" && row) {
@@ -1227,21 +1221,9 @@
                         className: qrCurrentClass,
                         staff: staffName || "未知"
                     });
-                    // 💾 即時備份到 Google Sheets（附上 firestoreDocId 防定時器重複寫入）
-                    fetch(GAS_URL, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'text/plain' },
-                        keepalive: true,
-                        body: JSON.stringify({
-                            action: 'logToSheets', memberId: memberid,
-                            name: resultData.name, gender: resultData.gender,
-                            seatNum: resultData.seatNum, area: resultData.area,
-                            locationName: currentLoc.name,
-                            status: isAdminMode ? "免定位模式" : "定位驗證成功",
-                            reason: "", className: qrCurrentClass, staff: staffName || "未知",
-                            firestoreDocId: docRef.id
-                        })
-                    }).catch(e => console.warn('[GAS logToSheets]', e));
+                    // 💾 已寫入 Firestore (由背景同步至 Google Sheets，不在此同步請求以免阻塞 UI)
+                    console.log(`[Firebase] QR 簽到寫入成功 docId: ${docRef.id}，稍後定時自動同步至 Sheets`);
+
                     document.getElementById('display-prayer').innerText = resultData.name || "未知";
                     document.getElementById('display-seat').innerText = `座號 ${resultData.seatNum || '無'}`;
                     document.getElementById('display-temple').innerText = resultData.area || "";
