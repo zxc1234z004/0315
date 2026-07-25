@@ -16,9 +16,23 @@
  */
 
 // ⚙️ 請填入你的 Firebase 專案 ID（firebaseConfig 裡的 projectId）
-const FIREBASE_PROJECT_ID = "roll-call-system-0411";
+const FIREBASE_PROJECT_ID = "text0531";
 
 const SPREADSHEET_ID = SpreadsheetApp.getActiveSpreadsheet().getId();
+
+/**
+ * 開啟試算表時自動建立自訂選單
+ */
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu('📋 點名系統')
+    .addItem('🔄 立即同步 Firebase → Sheets', 'syncFirebaseToSheets')
+    .addSeparator()
+    .addItem('🚀 移轉設定與名冊到 Firebase', 'migrateToFirebase')
+    .addSeparator()
+    .addItem('📥 補齊全部歷史紀錄（首次使用）', 'syncAllHistoryFromFirebase')
+    .addToUi();
+}
 
 function doGet(e) {
   const action = e.parameter.action;
@@ -152,6 +166,25 @@ function doPost(e) {
     if (action === 'logToSheets') {
       const logHeaders = ["時間", "ID", "姓名", "性別", "座號", "區域", "地點", "驗證方式", "請假原因", "班名", "紀錄人"];
       const logSheet = getOrCreateSheet(ss, "簽到紀錄", logHeaders);
+
+      // 補上 L 欄標題（若缺少）
+      if (logSheet.getRange(1, 12).getValue() !== "FirestoreDocId") {
+        logSheet.getRange(1, 12).setValue("FirestoreDocId");
+      }
+
+      // 若前端有傳 firestoreDocId，先檢查有無重複
+      const incomingDocId = postData.firestoreDocId || "";
+      if (incomingDocId) {
+        const lastRow = logSheet.getLastRow();
+        if (lastRow >= 2) {
+          const idCol = logSheet.getRange(2, 12, lastRow - 1, 1).getValues();
+          const isDuplicate = idCol.some(r => String(r[0]) === incomingDocId);
+          if (isDuplicate) {
+            return createJsonResponse("success", "已存在，略過重複寫入");
+          }
+        }
+      }
+
       logSheet.appendRow([
         new Date(),
         postData.memberId    || "",
@@ -163,7 +196,8 @@ function doPost(e) {
         postData.status      || "",
         postData.reason      || "",
         postData.className   || "",
-        postData.staff       || ""
+        postData.staff       || "",
+        incomingDocId          // L 欄存 Firestore Doc ID
       ]);
       return createJsonResponse("success", "已備份至試算表");
     }
@@ -177,10 +211,14 @@ function doPost(e) {
 /**
  * ====================================================
  * 🔄 Firebase → Google Sheets 定時同步
- * 建議設定：每 5~10 分鐘觸發一次 syncFirebaseToSheets()
- * 設定方式：GAS 編輯器 → 觸發條件 → 新增觸發條件
- *           函式名稱: syncFirebaseToSheets
- *           基於時間 → 分鐘計時器 → 每 5 分鐘
+ *
+ * 【首次使用必做】
+ * 1. GAS 編輯器左側 → 齒輪「專案設定」→ 勾選「在編輯器中顯示 appsscript.json 資訊清單檔案」
+ * 2. 點選 appsscript.json，確保 oauthScopes 包含：
+ *    "https://www.googleapis.com/auth/datastore"
+ *    完整範例見程式碼底部的 appsscript.json 說明
+ * 3. 第一次手動執行 syncAllHistoryFromFirebase() 補齊歷史紀錄
+ * 4. 新增觸發條件：函式 syncFirebaseToSheets，每 1 分鐘執行
  * ====================================================
  */
 function syncFirebaseToSheets() {
@@ -190,8 +228,10 @@ function syncFirebaseToSheets() {
   
   const props = PropertiesService.getScriptProperties();
   const lastSyncStr = props.getProperty('lastSyncTime');
-  // 上次同步時間（ISO 字串），若沒有則從 24 小時前開始
-  const lastSyncTime = lastSyncStr ? new Date(lastSyncStr) : new Date(Date.now() - 24 * 60 * 60 * 1000);
+  // 上次同步時間，若有名稱則往前回溯 5 分鐘（防止多個併發請求時間戳記完全一致或延遲寫入導致漏同步），沒有則從 24 小時前開始
+  const lastSyncTime = lastSyncStr 
+    ? new Date(new Date(lastSyncStr).getTime() - 5 * 60 * 1000) 
+    : new Date(Date.now() - 24 * 60 * 60 * 1000);
 
   // 讀取試算表已有的 Firebase Doc ID，避免重複寫入
   const existingIds = new Set();
@@ -215,17 +255,18 @@ function syncFirebaseToSheets() {
     structuredQuery: {
       from: [{ collectionId: "signin_records" }],
       orderBy: [{ field: { fieldPath: "time" }, direction: "ASCENDING" }],
-      // 只撈 lastSyncTime 之後的資料（避免資料量過大）
+      // 以大於等於 (>=) 撈取 lastSyncTime 之後的資料（安全防重複）
       where: {
         fieldFilter: {
           field: { fieldPath: "time" },
-          op: "GREATER_THAN",
+          op: "GREATER_THAN_OR_EQUAL",
           value: { timestampValue: lastSyncTime.toISOString() }
         }
       },
       limit: 500  // 每次最多同步 500 筆
     }
   };
+
 
   try {
     const response = UrlFetchApp.fetch(apiUrl, {
@@ -319,6 +360,187 @@ function getOrCreateSheet(ss, name, headers) {
 }
 
 /**
+ * ====================================================
+ * 🚀 資料移轉：Google Sheets → Firestore
+ * 一次性執行，將現有 Sheets 設定與名冊推送到 Firestore
+ * ====================================================
+ */
+function migrateToFirebase() {
+  const ui = SpreadsheetApp.getUi();
+  const res = ui.alert('🚀 資料移轉確認', '這將會把試算表中的地點、班級與所有名冊資料推送到 Firestore。確定要執行嗎？', ui.ButtonSet.YES_NO);
+  if (res !== ui.Button.YES) return;
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const token = ScriptApp.getOAuthToken();
+
+  // 1. 移轉地點 (系統設定)
+  const locSheet = ss.getSheetByName("系統設定");
+  if (locSheet) {
+    const rows = locSheet.getDataRange().getValues();
+    const batch = [];
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i][3]) {
+        batch.push({
+          id: String(i),
+          data: {
+            lat: { doubleValue: rows[i][0] },
+            lng: { doubleValue: rows[i][1] },
+            limit: { integerValue: rows[i][2] },
+            name: { stringValue: String(rows[i][3]) },
+            password: { stringValue: String(rows[i][4]) },
+            order: { integerValue: i }
+          }
+        });
+      }
+    }
+    batchFirestoreCommit("locations", batch, token);
+    ui.alert('✅ 地點移轉完成');
+  }
+
+  // 2. 移轉班級 (班級設定)
+  const classSheet = ss.getSheetByName("班級設定");
+  let classes = [];
+  if (classSheet) {
+    const rows = classSheet.getDataRange().getValues();
+    const batch = [];
+    for (let j = 1; j < rows.length; j++) {
+      if (rows[j][0]) {
+        classes.push(rows[j][0]);
+        batch.push({
+          id: rows[j][0],
+          data: {
+            name: { stringValue: rows[j][0] },
+            order: { integerValue: j }
+          }
+        });
+      }
+    }
+    batchFirestoreCommit("classes", batch, token);
+  } else {
+    // 沒班級設定則自動偵測
+    const sheets = ss.getSheets();
+    classes = sheets.map(s => s.getName()).filter(n => n.indexOf("名冊_") === 0).map(n => n.replace("名冊_", ""));
+    const batch = classes.map((c, i) => ({ id: c, data: { name: { stringValue: c }, order: { integerValue: i } } }));
+    batchFirestoreCommit("classes", batch, token);
+  }
+  ui.alert('✅ 班級移轉完成');
+
+  // 3. 移轉各班名冊
+  classes.forEach(cls => {
+    const sheetName = "名冊_" + cls;
+    const sheet = ss.getSheetByName(sheetName);
+    if (sheet) {
+      const rows = sheet.getDataRange().getValues();
+      const batch = [];
+      const membersArray = [];
+
+      for (let k = 1; k < rows.length; k++) {
+        if (rows[k][0]) { // A:memberId
+          const isEligible = String(rows[k][6]).trim() === "0";
+          
+          // 個別成員資料（用於 QR Code 比對，維持 members 集合）
+          batch.push({
+            id: cls + "_" + rows[k][0], // 複合鍵
+            data: {
+              memberId: { stringValue: String(rows[k][0]) },
+              gender: { stringValue: String(rows[k][1]) },
+              seatNum: { stringValue: String(rows[k][2]) },
+              name: { stringValue: String(rows[k][3]) },
+              area: { stringValue: String(rows[k][4]) },
+              className: { stringValue: cls },
+              eligible: { booleanValue: isEligible }
+            }
+          });
+
+          // 打包用的成員陣列
+          membersArray.push({
+            mapValue: {
+              fields: {
+                memberId: { stringValue: String(rows[k][0]) },
+                gender: { stringValue: String(rows[k][1]) },
+                seatNum: { stringValue: String(rows[k][2]) },
+                name: { stringValue: String(rows[k][3]) },
+                area: { stringValue: String(rows[k][4]) },
+                eligible: { booleanValue: isEligible }
+              }
+            }
+          });
+        }
+      }
+
+      // 分批上傳個別成員
+      for (let step = 0; step < batch.length; step += 100) {
+        batchFirestoreCommit("members", batch.slice(step, step + 100), token);
+      }
+
+      // 上傳打包名冊 rosters/{className}
+      if (membersArray.length > 0) {
+        const rosterUrl = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/rosters/${cls}`;
+        const payload = JSON.stringify({
+          fields: {
+            className: { stringValue: cls },
+            members: {
+              arrayValue: {
+                values: membersArray
+              }
+            }
+          }
+        });
+        const options = {
+          method: "patch",
+          contentType: "application/json",
+          headers: { Authorization: "Bearer " + token },
+          payload: payload,
+          muteHttpExceptions: true
+        };
+        const res = UrlFetchApp.fetch(rosterUrl, options);
+        const code = res.getResponseCode();
+        if (code !== 200) {
+          console.warn(`[Roster Pack Error] ${cls}: ${code} - ${res.getContentText()}`);
+        } else {
+          console.log(`✅ ${cls} 打包名冊移轉完成 (由 rosters 承載)`);
+        }
+      }
+
+      console.log('✅ ' + cls + ' 名冊移轉完成 (' + batch.length + '筆)');
+    }
+  });
+
+  ui.alert('🎉 全面移轉成功！現在前端可以安全切換到直接讀取 Firestore。');
+}
+
+/**
+ * 批次寫入 Firestore (使用 commit API)
+ * 效率比逐筆 patch 高出數十倍，可避免超時
+ */
+function batchFirestoreCommit(collection, documents, token) {
+  const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents:commit`;
+  
+  const writes = documents.map(doc => ({
+    update: {
+      name: `projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/${collection}/${doc.id}`,
+      fields: doc.data
+    }
+  }));
+
+  const payload = JSON.stringify({ writes: writes });
+  
+  const options = {
+    method: "post",
+    contentType: "application/json",
+    headers: { Authorization: "Bearer " + token },
+    payload: payload,
+    muteHttpExceptions: true
+  };
+
+  const res = UrlFetchApp.fetch(url, options);
+  const code = res.getResponseCode();
+  if (code !== 200) {
+    console.warn(`[BatchCommit Error] ${code}: ${res.getContentText()}`);
+  }
+}
+
+/**
  * 輔助函式：標準化回傳 JSON 格式
  */
 function createJsonResponse(status, message, data = null) {
@@ -326,3 +548,29 @@ function createJsonResponse(status, message, data = null) {
   return ContentService.createTextOutput(JSON.stringify(output))
     .setMimeType(ContentService.MimeType.JSON);
 }
+
+/**
+ * ============================================================
+ * 【必要設定】appsscript.json 需加入以下 oauthScopes
+ * 步驟：GAS 編輯器 → 齒輪「專案設定」→ 勾選「顯示 appsscript.json」
+ * 然後點選左側 appsscript.json，貼上以下完整內容（覆蓋原有的）：
+ *
+ * {
+ *   "timeZone": "Asia/Taipei",
+ *   "dependencies": {},
+ *   "exceptionLogging": "STACKDRIVER",
+ *   "runtimeVersion": "V8",
+ *   "webapp": {
+ *     "executeAs": "USER_DEPLOYING",
+ *     "access": "ANYONE_ANONYMOUS"
+ *   },
+ *   "oauthScopes": [
+ *     "https://www.googleapis.com/auth/spreadsheets",
+ *     "https://www.googleapis.com/auth/script.external_request",
+ *     "https://www.googleapis.com/auth/datastore"
+ *   ]
+ * }
+ *
+ * 加完後請重新部署（新版本）才會生效！
+ * ============================================================
+ */
