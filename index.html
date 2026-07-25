@@ -1242,6 +1242,22 @@
                 setTimeout(() => { isProcessingScanner = false; statusCard.classList.add('hidden'); }, 3000);
             }
         }
+
+        // 📱 背景斷線與防重置讀取優量優化：偵測手機鎖屏或分頁藏入後台時，自動中斷 Firestore 監聽
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden') {
+                console.log('[Visibility] 畫面隱藏或鎖屏，中斷 Firestore 監聽以防背景隱形重連消耗讀取量');
+                if (signinUnsubscribe) {
+                    signinUnsubscribe();
+                    signinUnsubscribe = null;
+                }
+            } else if (document.visibilityState === 'visible') {
+                console.log('[Visibility] 畫面重新顯示，重新載入並建立監聽');
+                if (selectedClass) {
+                    loadFormData();
+                }
+            }
+        });
     </script>
 </body>
 
